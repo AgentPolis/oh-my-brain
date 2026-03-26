@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { truncateIfNeeded, TOOL_OUTPUT_MAX_TOKENS } from "../src/triage/truncate.js";
+import { estimateTokens } from "../src/assembly/budget.js";
 
 describe("truncateIfNeeded", () => {
   it("passes short content through unchanged", () => {
@@ -15,8 +16,12 @@ describe("truncateIfNeeded", () => {
   it("truncates long tool output to token budget", () => {
     const long = "A".repeat(5000);
     const result = truncateIfNeeded(long, "tool_result");
-    expect(result.length).toBeLessThan(2000);
+    // Result chars should be proportional to token budget (with slack for marker line)
+    expect(result.length).toBeLessThan(TOOL_OUTPUT_MAX_TOKENS * 4 * 1.2);
     expect(result).toContain("[truncated");
+    // Core guarantee: output token count should not greatly exceed the budget
+    // (small overshoot allowed for the marker line itself, ~15 tokens)
+    expect(estimateTokens(result)).toBeLessThan(TOOL_OUTPUT_MAX_TOKENS + 20);
   });
 
   it("preserves head and tail of tool output", () => {
