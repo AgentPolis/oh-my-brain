@@ -27,6 +27,8 @@ import { allocateBudget } from "./assembly/budget.js";
 import { assemble } from "./assembly/assembler.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import { Level } from "./types.js";
+import { Compactor } from "./compact/compactor.js";
+import { DagStore } from "./storage/dag.js";
 
 export class SqueezeContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
@@ -40,6 +42,8 @@ export class SqueezeContextEngine implements ContextEngine {
   private directives!: DirectiveStore;
   private taskDetector!: TaskDetector;
   private circuitBreaker!: CircuitBreaker;
+  private dag!: DagStore;
+  private compactor!: Compactor;
   private config: SqueezeConfig;
   private turnIndex = 0;
   private memoryEnabled = true;
@@ -61,6 +65,11 @@ export class SqueezeContextEngine implements ContextEngine {
     initSchema(this.db);
 
     this.messages = new MessageStore(this.db);
+    this.dag = new DagStore(this.db);
+    this.compactor = new Compactor(this.messages, this.dag, {
+      freshTailTurns: this.config.freshTailCount,
+      batchTurns: 5,
+    });
     this.directives = new DirectiveStore(this.db);
     this.taskDetector = new TaskDetector({
       blendTurns: this.config.taskTransitionBlendTurns,
@@ -151,11 +160,7 @@ export class SqueezeContextEngine implements ContextEngine {
   }
 
   async compact(): Promise<void> {
-    // TODO: Level-aware DAG compression
-    // - L2+ content preserved with higher fidelity
-    // - L3 never touched
-    // - L0 already discarded at ingest
-    // - L1 standard DAG summarization
+    this.compactor.run(this.turnIndex);
   }
 
   async afterTurn(turn: Turn): Promise<void> {

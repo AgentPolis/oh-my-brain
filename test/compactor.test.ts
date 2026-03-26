@@ -6,6 +6,7 @@ import { Level } from "../src/types.js";
 import { summarize } from "../src/compact/summarizer.js";
 import type { StoredMessage } from "../src/types.js";
 import { MessageStore } from "../src/storage/messages.js";
+import { Compactor } from "../src/compact/compactor.js";
 
 let db: Database.Database;
 
@@ -119,5 +120,48 @@ describe("MessageStore compaction methods", () => {
     msgStore.markCompacted(first.map(m => m.id), dagNodeId);
     const second = msgStore.getCompactable(10, 5);
     expect(second).toHaveLength(0);
+  });
+});
+
+// Task 5 tests use `db` from the outer beforeEach defined at the top of this file.
+describe("Compactor.run()", () => {
+  it("compacts old L1 messages into dag_nodes", () => {
+    const msgStore = new MessageStore(db); // db from outer beforeEach
+    const dagStore = new DagStore(db);
+    const compactor = new Compactor(msgStore, dagStore, { freshTailTurns: 5, batchTurns: 3 });
+
+    for (let t = 1; t <= 20; t++) {
+      msgStore.insert(
+        { role: "user", content: `user message at turn ${t}, asking about topic ${t % 4}` },
+        t,
+        { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
+      );
+      msgStore.insert(
+        { role: "assistant", content: `assistant done handling turn ${t}` },
+        t,
+        { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
+      );
+    }
+
+    compactor.run(20);
+
+    expect(dagStore.count()).toBeGreaterThan(0);
+    const stillCompactable = msgStore.getCompactable(20, 5);
+    expect(stillCompactable).toHaveLength(0);
+  });
+
+  it("does nothing if no compactable messages", () => {
+    const msgStore = new MessageStore(db);
+    const dagStore = new DagStore(db);
+    const compactor = new Compactor(msgStore, dagStore, { freshTailTurns: 20, batchTurns: 5 });
+
+    for (let t = 1; t <= 5; t++) {
+      msgStore.insert(
+        { role: "user", content: `msg ${t}` }, t,
+        { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
+      );
+    }
+    compactor.run(5);
+    expect(dagStore.count()).toBe(0);
   });
 });
