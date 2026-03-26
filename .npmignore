@@ -1,0 +1,9 @@
+src/
+test/
+eval/
+*.db
+*.db-wal
+*.db-shm
+vitest.config.ts
+tsconfig.json
+.gitignore
