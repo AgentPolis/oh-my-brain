@@ -6,7 +6,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export function initSchema(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
@@ -29,7 +29,8 @@ export function initSchema(db: Database.Database): void {
                           CHECK(content_type IN ('code','tool_result','reasoning','instruction','reference','conversation')),
       confidence   REAL    NOT NULL DEFAULT 0.5 CHECK(confidence BETWEEN 0.0 AND 1.0),
       turn_index   INTEGER NOT NULL DEFAULT 0,
-      created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      compacted_by INTEGER REFERENCES dag_nodes(id)
     );
 
     -- DAG summary nodes with LOD tiers
@@ -90,6 +91,20 @@ export function initSchema(db: Database.Database): void {
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`
   ).run(String(SCHEMA_VERSION));
+
+  // Version-gated migrations
+  const currentVersion = (db
+    .prepare(`SELECT value FROM schema_meta WHERE key = 'version'`)
+    .get() as { value: string } | undefined)?.value ?? "1";
+
+  if (Number(currentVersion) < 2) {
+    const cols = (db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>)
+      .map(c => c.name);
+    if (!cols.includes("compacted_by")) {
+      db.exec(`ALTER TABLE messages ADD COLUMN compacted_by INTEGER REFERENCES dag_nodes(id)`);
+    }
+    db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '2')`).run();
+  }
 }
 
 /**
@@ -128,6 +143,9 @@ export function migrateFromLosslessClaw(db: Database.Database): void {
     db.exec(
       `ALTER TABLE messages ADD COLUMN turn_index INTEGER NOT NULL DEFAULT 0`
     );
+  }
+  if (!colNames.has("compacted_by")) {
+    db.exec(`ALTER TABLE messages ADD COLUMN compacted_by INTEGER REFERENCES dag_nodes(id)`);
   }
 
   // Create tables that don't exist in lossless-claw
