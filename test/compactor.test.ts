@@ -5,6 +5,7 @@ import { DagStore } from "../src/storage/dag.js";
 import { Level } from "../src/types.js";
 import { summarize } from "../src/compact/summarizer.js";
 import type { StoredMessage } from "../src/types.js";
+import { MessageStore } from "../src/storage/messages.js";
 
 let db: Database.Database;
 
@@ -82,5 +83,41 @@ describe("summarize", () => {
     if (result.overview.length > 0) {
       expect(result.abstract.length).toBeLessThanOrEqual(result.overview.length + 10);
     }
+  });
+});
+
+// Note: uses `db` from the outer beforeEach defined at the top of this file.
+// Do not move these tests to a separate file without bringing that fixture along.
+describe("MessageStore compaction methods", () => {
+  it("getCompactable returns L1 messages older than freshTailTurns", () => {
+    const msgStore = new MessageStore(db); // db from outer beforeEach
+    for (let t = 1; t <= 30; t++) {
+      msgStore.insert(
+        { role: "user", content: `message at turn ${t}` },
+        t,
+        { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
+      );
+    }
+    // currentTurn=30, freshTailTurns=20 → compactable = turns 1-10
+    const compactable = msgStore.getCompactable(30, 20);
+    expect(compactable.length).toBeGreaterThan(0);
+    expect(compactable.every(m => m.turnIndex <= 10)).toBe(true);
+  });
+
+  it("getCompactable excludes already-compacted messages", () => {
+    const msgStore = new MessageStore(db);
+    const dagStore = new DagStore(db);
+    for (let t = 1; t <= 5; t++) {
+      msgStore.insert(
+        { role: "user", content: `msg ${t}` },
+        t,
+        { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
+      );
+    }
+    const first = msgStore.getCompactable(10, 5);
+    const dagNodeId = dagStore.insert({ parentId: null, abstract: "test", overview: "", detail: "", sourceIds: [], minTurn: 1, maxTurn: 5, level: Level.Observation });
+    msgStore.markCompacted(first.map(m => m.id), dagNodeId);
+    const second = msgStore.getCompactable(10, 5);
+    expect(second).toHaveLength(0);
   });
 });

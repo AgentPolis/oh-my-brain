@@ -81,6 +81,42 @@ export class MessageStore {
       .get() as { max_turn: number | null };
     return row.max_turn ?? 0;
   }
+
+  /**
+   * Return L1 messages that are old enough to compact.
+   * "Old enough" = turn_index <= currentTurn - freshTailTurns
+   * Excludes already-compacted messages (compacted_by IS NOT NULL).
+   */
+  getCompactable(currentTurn: number, freshTailTurns: number): StoredMessage[] {
+    const cutoffTurn = currentTurn - freshTailTurns;
+    if (cutoffTurn <= 0) return [];
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE level = ? AND turn_index <= ? AND compacted_by IS NULL
+         ORDER BY turn_index, id`
+      )
+      .all(Level.Observation, cutoffTurn) as RawRow[];
+    return rows.map(toStoredMessage);
+  }
+
+  /**
+   * Mark messages as compacted (associated with a dag_node).
+   * Batches updates safely (SQLite limit: 999 bound params).
+   */
+  markCompacted(ids: number[], dagNodeId: number): void {
+    if (ids.length === 0) return;
+    // Process in chunks of 100 to stay well under SQLite's 999 param limit
+    const CHUNK = 100;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => "?").join(",");
+      this.db
+        .prepare(`UPDATE messages SET compacted_by = ? WHERE id IN (${placeholders})`)
+        .run(dagNodeId, ...chunk);
+    }
+  }
 }
 
 // ── internal ─────────────────────────────────────────────────────
@@ -94,6 +130,7 @@ interface RawRow {
   confidence: number;
   turn_index: number;
   created_at: string;
+  compacted_by: number | null;  // needed so better-sqlite3 doesn't error on column
 }
 
 function toStoredMessage(row: RawRow): StoredMessage {
