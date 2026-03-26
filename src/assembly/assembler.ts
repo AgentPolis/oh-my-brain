@@ -11,6 +11,7 @@ import type {
   PreferenceRecord,
   TaskType,
   SqueezeConfig,
+  DagNode,
 } from "../types.js";
 import type { BudgetAllocation } from "./budget.js";
 import { estimateTokens } from "./budget.js";
@@ -25,6 +26,7 @@ export interface AssemblerInput {
   config: SqueezeConfig;
   degraded: boolean;
   degradedReason?: string;
+  dagNodes: DagNode[];
 }
 
 /**
@@ -71,7 +73,22 @@ export function assemble(input: AssemblerInput): AssembledContext {
     }
   }
 
-  // 4. Fresh tail
+  // 4. History summaries from dag_nodes (oldest first) — BEFORE fresh tail
+  //    Uses historySummaries budget slice to leave room for fresh tail.
+  let summaryCount = 0;
+  let summaryTokensUsed = 0;
+  for (const node of input.dagNodes) {
+    const meta = JSON.parse(node.sourceIds as unknown as string) as { minTurn: number; maxTurn: number };
+    const summaryText = `[Summary turns ${meta.minTurn}–${meta.maxTurn}]: ${node.abstract}`;
+    const summaryTokens = estimateTokens(summaryText);
+    if (summaryTokensUsed + summaryTokens > input.budget.historySummaries) break;
+    messages.push({ role: "system", content: summaryText });
+    tokenCount += summaryTokens;
+    summaryTokensUsed += summaryTokens;
+    summaryCount++;
+  }
+
+  // 5. Fresh tail (was step 4)
   const tailBudget = input.budget.total - tokenCount;
   for (const msg of input.freshTail) {
     const msgTokens = estimateTokens(msg.content);
@@ -88,7 +105,7 @@ export function assemble(input: AssemblerInput): AssembledContext {
       directiveCount: input.directives.length,
       preferenceCount: eligiblePrefs.length,
       freshTailCount: input.freshTail.length,
-      summaryCount: 0,   // TODO: DAG summaries
+      summaryCount,
       prefetchCount: 0,   // TODO: prefetch
       memoryPercent: input.budget.total > 0
         ? Math.round(((tokenCount - input.budget.systemPrompt) / input.budget.total) * 100)

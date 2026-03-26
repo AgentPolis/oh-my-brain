@@ -146,6 +146,8 @@ export class SqueezeContextEngine implements ContextEngine {
       this.config
     );
 
+    const dagNodes = this.dag.getAbstracts(20); // dag is always initialized in bootstrap()
+
     return assemble({
       systemPrompt: [],
       directives: activeDirectives,
@@ -156,6 +158,7 @@ export class SqueezeContextEngine implements ContextEngine {
       config: this.config,
       degraded: this.circuitBreaker.isDegraded,
       degradedReason: this.circuitBreaker.degradedReason ?? undefined,
+      dagNodes,
     });
   }
 
