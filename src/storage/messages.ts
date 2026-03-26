@@ -5,6 +5,7 @@
 import type Database from "better-sqlite3";
 import type { Classification, StoredMessage, Message } from "../types.js";
 import { Level } from "../types.js";
+import { truncateIfNeeded } from "../triage/truncate.js";
 
 export class MessageStore {
   private db: Database.Database;
@@ -17,12 +18,14 @@ export class MessageStore {
     // L0 = discard, don't store
     if (cls.level === Level.Discard) return -1;
 
+    const content = truncateIfNeeded(msg.content, cls.contentType);
+
     const result = this.db
       .prepare(
         `INSERT INTO messages (role, content, level, content_type, confidence, turn_index)
          VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(msg.role, msg.content, cls.level, cls.contentType, cls.confidence, turnIndex);
+      .run(msg.role, content, cls.level, cls.contentType, cls.confidence, turnIndex);
 
     return Number(result.lastInsertRowid);
   }
