@@ -14,8 +14,12 @@
   "bugs": {
     "url": "https://github.com/nicholasgasior/squeeze-claw/issues"
   },
+  "bin": {
+    "squeeze-compress": "./dist/cli/compress.js"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup src/index.ts --format esm --dts && tsup cli/compress.ts --format esm --no-dts --out-dir dist/cli",
+    "build:cli": "tsup cli/compress.ts --format esm --no-dts --out-dir dist/cli",
     "dev": "tsup src/index.ts --format esm --dts --watch",
     "test": "vitest",
     "test:run": "vitest run",
