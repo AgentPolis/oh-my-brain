@@ -1,38 +1,131 @@
-# squeeze-claw TODOS
+# squeeze-claw / oh-my-brain TODOS
 
-## MVP Blockers (must do before shipping cli/compress.ts)
+> Project is mid-repositioning from squeeze-claw → oh-my-brain. See
+> `docs/why-memory-candidates.md` for the core insight driving the pivot
+> and the CEO plan at `~/.gstack/projects/squeeze-claw/ceo-plans/` for
+> the full roadmap.
 
-- [ ] **Empirical Stop hook verification** — Write a Stop hook that dumps stdin + all env vars to stderr. Confirm: (a) what JSON arrives on stdin, (b) whether `cwd` is set, (c) what the session path looks like. This is THE gate for the entire CLI. Do not write compress.ts until this passes.
-  - Test: add to `~/.claude/settings.json`, run a short session, inspect stderr output
+## Recently shipped (2026-04-06)
 
-- [ ] **Handle partial JSONL last line** — The last line of a session `.jsonl` may be partially written if Claude Code is still running. Use try-parse per line: `try { JSON.parse(line) } catch { skip }`. Never crash on malformed JSONL.
+- [x] **Dedup substring bug fixed** — `writeDirectivesToMemory` now uses
+  exact-line comparison via `parseExistingDirectives`, so
+  "always use TypeScript" no longer blocks "always use TypeScript strict mode".
+- [x] **Memory Candidates review queue** — persistent store at
+  `.squeeze/candidates.json`, `squeeze-candidates` CLI with
+  list/approve/reject/retire/status commands, soft-signal ingestion
+  wired into both Claude Code hook and Codex sync.
+- [x] **MEMORY.md write lock** — `cli/lockfile.ts` prevents concurrent
+  writers from silently clobbering each other's directives.
+- [x] **MEMORY.md supersession** — `squeeze-candidates retire` moves
+  stale directives to an explicit archive section; bootstrap-read
+  consumers ignore the archive.
+- [x] **L2 preference ingestion** — classifier now detects explicit
+  preference statements and the engine calls `addPreference`. L2 is
+  no longer measured fiction in the README.
+- [x] **Partial JSONL last-line handling** — already implemented at
+  `cli/compress-core.ts:parseSessionEntries` (try/catch per line).
+- [x] **MEMORY.md dedup** — implemented in `writeDirectivesToMemory`,
+  fixed for the substring bug above.
 
-- [ ] **MEMORY.md dedup** — Before appending any L3 directive, grep `./MEMORY.md` for the exact line. Skip if already present. Prevents duplicate entries across multiple sessions.
+## Still open
 
-## v1.1 (after MVP is working)
+### Phase 1 (finish credibility pass)
 
-- [ ] **Session ID anchor** — Replace "most recently modified `.jsonl`" heuristic with: read `sessionId` from Stop hook stdin, find the matching file in `~/.claude/projects/$(cwd | tr '/' '-')/`. Eliminates stale-file race condition.
+- [ ] **Empirical Stop hook verification (user action)** — The debug
+  instrument already exists at `cli/debug-hook.js` (writes stdin, env,
+  cwd to `/tmp/squeeze-debug-*`). Remaining step is user action: wire
+  it into `~/.claude/settings.json`, run a short Claude Code session,
+  inspect the three /tmp files to confirm (a) stdin JSON shape, (b)
+  whether `cwd` is set, (c) session path format. Capture findings in
+  a follow-up commit to lock in assumptions.
 
-- [ ] **@squeeze-claw/core npm package** — Extract `src/triage/classifier.ts` + `src/compact/compactor.ts` with zero OpenClaw deps. Separate tsconfig entry point. Trigger: 100 installs of CLI.
+- [ ] **Pre-existing test failures** — 44 tests fail with
+  `Cannot read properties of undefined (reading 'close')` across
+  `test/directives.test.ts`, `test/assembler.test.ts`,
+  `test/integration.test.ts`. These are NOT caused by recent work
+  (verified by stash/pop comparison). Looks like a db setup lifecycle
+  issue — test beforeEach fails to initialize `db` so afterEach's
+  `db.close()` throws. Investigate and fix as a separate change.
 
-- [ ] **npm publish CI** — GitHub Actions workflow: `npm publish` on semver tag push. Separate jobs for `squeeze-claw` (CLI) and `@squeeze-claw/core`.
+- [ ] **Repetition-based L2 promotion** — Current L2 path is
+  classification-time only (explicit "I prefer X"). Implicit
+  preferences that emerge only through repetition need the
+  mention-counting observation loop. Requires schema migration
+  (current `mention_counts` is keyed by `msg_id`, needs to be keyed
+  by normalized content key).
 
-## Roadmap (deferred until buzz validated)
+### Phase 2 (rename + MCP rebuild)
 
-- [ ] **agent-constitution integration** — Relationship unconfirmed. Revisit after researching what agent-constitution actually does and whether L3 directives map to its concept of "constitution".
+- [ ] **Rename squeeze-claw → oh-my-brain** — npm, GitHub, package.json,
+  all imports, all docs, all test fixtures. Publish deprecation
+  notice on npm for squeeze-claw. Keep git history.
 
-- [ ] **PreToolUse hook** — Inject L3 directives at session START (not just end). BLOCKED until Stop hook is verified and compress.ts is running in real sessions.
+- [ ] **MCP-native rebuild** — Extract core engine as an MCP server.
+  Tools: `brain_remember`, `brain_recall`, `brain_directives`,
+  `brain_status`. Existing adapters become MCP clients. Bootstrap
+  read becomes a `brain_recall` call on startup. New adapter for
+  MCP-compatible tools (Cursor, Windsurf) for free.
 
-- [ ] **LLM-based classifier** — Replace heuristic L0-L3 classifier with Haiku call for ambiguous cases. Phase 3 roadmap item. Current regex fast path (<1ms) is sufficient for MVP.
+- [ ] **Cross-agent handoff demo** — Reproducible script showing
+  Claude Code writes a directive → Codex reads it on next session
+  and behavior changes. Integration test. This is the single
+  highest-leverage credibility artifact.
 
-- [ ] **squeeze-claw.dev landing page** — Trigger: 100 installs. GitHub README + generated banner sufficient for now.
+### Phase 3 (launch prep)
 
-## Known Design Decisions (already resolved)
+- [ ] **Memory-focused benchmarks** — Directive survival rate,
+  cross-agent recall accuracy, preference consistency. Deterministic
+  compaction for CI speed. Replaces current "96.5% token savings"
+  headline which is from a synthetic eval.
 
-- **JSONL format**: `{type, cwd, sessionId, message: {role, content: string | ContentBlock[]}}` — NOT `{role, content, ts}`. Use `extractTextContent()` to normalize. Skip `file-history-snapshot` entries.
-- **Session path**: `~/.claude/projects/$(pwd | tr '/' '-')/` — NOT `$CLAUDE_PROJECT_DIR`.
-- **Stale check**: position-only (index < total - 20) — NO substring comparison (avoids O(n²)).
-- **MEMORY.md in MVP**: L3 directives write to `./MEMORY.md` IS part of MVP v1.0 (not v1.1). Without this, MVP has no differentiator over native compaction.
-- **Token % in output**: always use `63.9%` (benchmark number from README). Not 60%, not 61%.
-- **Exit behavior**: always `exit 0`. Log errors to stderr but never let the hook crash a user's session.
-- **ESM**: keep `"type": "module"` in package.json. CLI is a separate tsup entry point: `cli/compress.ts → dist/cli/compress.js`.
+- [ ] **Honest benchmark numbers** — Use real session replay range
+  (30-82%) instead of synthetic 96.5%. Explicitly frame as chars/4
+  estimation, not provider billing.
+
+- [ ] **README rewrite + FAQ** — New hero ("Your context, everywhere
+  you work"), L0-L3 + Memory Candidates explanation, vs-Memorix
+  comparison table, "Why not Claude's memory tool?" FAQ, origin
+  story from `docs/why-memory-candidates.md`.
+
+## Roadmap (not blocking launch)
+
+- [ ] **LLM-based classifier** — Replace heuristic L0-L3 classifier
+  with Haiku for ambiguous cases. Current regex fast path (<1ms) is
+  sufficient for MVP; LLM fallback is a Phase 3+ enhancement.
+
+- [ ] **agent-constitution integration** — L3 directives can feed
+  agent-constitution as governance rules; agent-constitution verdicts
+  can become L3 directives. Premature until production users exist.
+
+- [ ] **PreToolUse hook** — Inject L3 directives at session START.
+  Blocked until Stop hook is empirically verified.
+
+- [ ] **ohmybrain.dev landing page** — Trigger at 100 npm installs.
+
+- [ ] **Team collaboration features** — Shared directive store
+  across multiple developers on the same project. Requires thinking
+  about merge/conflict semantics for MEMORY.md across git branches.
+
+## Known Design Decisions (resolved, don't relitigate)
+
+- **JSONL format**: `{type, cwd, sessionId, message: {role, content}}`.
+  Use `extractTextContent()` to normalize. Skip `file-history-snapshot`.
+- **Session path**: `~/.claude/projects/$(pwd | tr '/' '-')/`.
+- **Stale check**: position-only (index < total - 20) — no substring
+  comparison (avoids O(n²)).
+- **MEMORY.md in MVP**: L3 directives write to `./MEMORY.md` is MVP
+  v1.0, not v1.1. Without this there's no differentiator over native
+  compaction.
+- **Exit behavior**: always `exit 0`. Log errors to stderr but never
+  crash a user's session.
+- **ESM**: keep `"type": "module"`. CLI entries are separate tsup
+  targets into `dist/cli/`.
+- **Dedup strategy**: exact-line comparison via
+  `parseExistingDirectives`, NOT substring `includes()` (fixed
+  2026-04-06).
+- **Archive section heading**: `## oh-my-brain archive (superseded
+  directives — do not use)` — exact match matters for
+  `parseExistingDirectives` and bootstrap-read consumers to ignore.
+- **Lockfile strategy**: O_EXCL create with stale-lock stealing
+  (30s age or dead pid). Falls back to unlocked write with stderr
+  warning if lock cannot be acquired in 2s.
