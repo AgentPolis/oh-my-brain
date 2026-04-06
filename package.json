@@ -21,8 +21,8 @@
     "squeeze-candidates": "./dist/cli/candidates-cli.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts && tsup cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts --format esm --no-dts --out-dir dist/cli",
-    "build:cli": "tsup cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts --format esm --no-dts --out-dir dist/cli",
+    "build": "tsup src/index.ts --format esm --dts && tsup cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts --format esm --no-dts --out-dir dist/cli",
+    "build:cli": "tsup cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts --format esm --no-dts --out-dir dist/cli",
     "dev": "tsup src/index.ts --format esm --dts --watch",
     "test": "vitest",
     "test:run": "vitest run",

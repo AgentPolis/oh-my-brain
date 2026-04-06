@@ -18,6 +18,7 @@ import {
   pendingCount,
   saveCandidateStore,
 } from "./candidates.js";
+import { withLock } from "./lockfile.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -329,6 +330,33 @@ export function appendDirectivesToMemory(
   const cleaned = directiveTexts.map((t) => t.trim()).filter((t) => t.length > 0);
   if (cleaned.length === 0) return 0;
 
+  // The whole read-dedup-write sequence must run under a lock. Without the
+  // lock, two concurrent writers each read the same "existing" snapshot,
+  // both decide their directives are new, and the second writer's rename
+  // silently clobbers the first writer's directives. This was an
+  // architectural gap for a product whose core promise is "never forget".
+  //
+  // If the lock cannot be acquired within the timeout we fall back to an
+  // unlocked write + stderr warning, because failing the user's Stop hook
+  // is worse than a rare race. The lock should almost always succeed
+  // because contention is limited to 1-3 agents on the same project.
+  try {
+    return withLock(memoryPath, () => {
+      return performDirectiveWrite(cleaned, memoryPath, metadata);
+    });
+  } catch (err) {
+    process.stderr.write(
+      `[squeeze] warning: MEMORY.md lock unavailable (${(err as Error).message}). Writing without lock.\n`
+    );
+    return performDirectiveWrite(cleaned, memoryPath, metadata);
+  }
+}
+
+function performDirectiveWrite(
+  cleaned: string[],
+  memoryPath: string,
+  metadata?: WriteMetadata
+): number {
   let existing = "";
   if (existsSync(memoryPath)) {
     existing = readFileSync(memoryPath, "utf8");
