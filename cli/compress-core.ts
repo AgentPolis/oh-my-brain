@@ -12,6 +12,12 @@ import { join } from "path";
 import { classify } from "../src/triage/classifier.js";
 import { Level } from "../src/types.js";
 import { writeLatestAudit } from "./audit.js";
+import {
+  ingestCandidates,
+  loadCandidateStore,
+  pendingCount,
+  saveCandidateStore,
+} from "./candidates.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -308,28 +314,28 @@ export function parseExistingDirectives(existing: string): Set<string> {
   return directives;
 }
 
-export function writeDirectivesToMemory(
-  processed: ProcessedMessage[],
+/**
+ * Write an arbitrary list of directive strings to MEMORY.md, reusing the
+ * same format and dedup logic as the session-driven writeDirectivesToMemory
+ * path. This is the entry point used by the candidate-approval CLI — when a
+ * user runs `squeeze-candidates approve <id>`, the approved candidate text
+ * is passed through here to land in MEMORY.md as a first-class directive.
+ */
+export function appendDirectivesToMemory(
+  directiveTexts: string[],
   memoryPath: string,
   metadata?: WriteMetadata
 ): number {
-  const directives = processed
-    .filter((m) => m.level === Level.Directive)
-    .map((m) => m.originalText.trim())
-    .filter((text) => text.length > 0);
-
-  if (directives.length === 0) return 0;
+  const cleaned = directiveTexts.map((t) => t.trim()).filter((t) => t.length > 0);
+  if (cleaned.length === 0) return 0;
 
   let existing = "";
   if (existsSync(memoryPath)) {
     existing = readFileSync(memoryPath, "utf8");
   }
 
-  // Parse existing directive bodies from bullet lines like "- [source session:id] directive text".
-  // Use exact-line comparison instead of substring `includes()` so that "always use TDD"
-  // does NOT block "always use TDD strict mode" from being written.
   const existingDirectives = parseExistingDirectives(existing);
-  const newDirectives = directives.filter((d) => !existingDirectives.has(d));
+  const newDirectives = cleaned.filter((d) => !existingDirectives.has(d));
   if (newDirectives.length === 0) return 0;
 
   const tmpPath = memoryPath + ".tmp";
@@ -347,6 +353,21 @@ export function writeDirectivesToMemory(
   writeFileSync(tmpPath, existing + section);
   renameSync(tmpPath, memoryPath);
   return newDirectives.length;
+}
+
+export function writeDirectivesToMemory(
+  processed: ProcessedMessage[],
+  memoryPath: string,
+  metadata?: WriteMetadata
+): number {
+  const directives = processed
+    .filter((m) => m.level === Level.Directive)
+    .map((m) => m.originalText.trim())
+    .filter((text) => text.length > 0);
+
+  // Delegate to the shared append path so both session-driven writes and
+  // candidate-approval writes go through exactly the same dedup + format.
+  return appendDirectivesToMemory(directives, memoryPath, metadata);
 }
 
 export function appendProjectRunLog(
@@ -401,6 +422,19 @@ export async function main() {
     sessionId,
   });
   const memoryCandidates = extractMemoryCandidates(processed);
+
+  // Persist candidates across runs so `squeeze-candidates list` can show them
+  // and the user can approve/reject later. Previously, candidates only lived
+  // in the ephemeral run log and disappeared after LATEST.md rotated.
+  const candidateStore = loadCandidateStore(cwd);
+  const newCandidates = ingestCandidates(candidateStore, memoryCandidates, {
+    source: "claude",
+    sessionId,
+  });
+  if (memoryCandidates.length > 0) {
+    saveCandidateStore(cwd, candidateStore);
+  }
+  const totalPending = pendingCount(candidateStore);
   const projectLogPath = appendProjectRunLog(cwd, {
     timestamp: new Date().toISOString(),
     source: "claude",
@@ -428,9 +462,13 @@ export async function main() {
   if (savedTokens === 0 && directivesWritten === 0) {
     process.stderr.write(`[squeeze] ${totalMsgs} msgs scanned. Nothing to compress.\n`);
   }
-  if (directivesWritten === 0 && memoryCandidates.length > 0) {
+  if (newCandidates.length > 0) {
     process.stderr.write(
-      `[squeeze] ${memoryCandidates.length} memory candidate${memoryCandidates.length === 1 ? "" : "s"} flagged for review in .squeeze/LATEST.md\n`
+      `[squeeze] ${newCandidates.length} new candidate${newCandidates.length === 1 ? "" : "s"} flagged for review (${totalPending} total pending). Run 'squeeze-candidates list' to review.\n`
+    );
+  } else if (totalPending > 0 && directivesWritten === 0) {
+    process.stderr.write(
+      `[squeeze] ${totalPending} candidate${totalPending === 1 ? "" : "s"} still awaiting review. Run 'squeeze-candidates list'.\n`
     );
   }
   if (directivesWritten > 0) {
