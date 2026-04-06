@@ -248,8 +248,15 @@ export function processMessages(entries: SessionEntry[]): ProcessedMessage[] {
       previousNormalized?.text
     );
 
+    // Apply the "only user messages can be durable memory" guard. Both L3
+    // directives and L2 preferences are downgraded to L1 observations if
+    // they originate from assistant or tool messages, or are suspiciously
+    // long (likely a paragraph, not a rule).
+    const isDurableLevel =
+      classification.level === Level.Directive ||
+      classification.level === Level.Preference;
     const effectiveLevel =
-      classification.level === Level.Directive &&
+      isDurableLevel &&
       (effectiveRole !== "user" || originalText.length > MAX_DIRECTIVE_CHARS)
         ? Level.Observation
         : classification.level;

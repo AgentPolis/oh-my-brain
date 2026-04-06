@@ -23,7 +23,7 @@ import { MessageStore } from "./storage/messages.js";
 import { DirectiveStore } from "./storage/directives.js";
 import { classify } from "./triage/classifier.js";
 import { TaskDetector } from "./assembly/task-detector.js";
-import { allocateBudget } from "./assembly/budget.js";
+import { allocateBudget, setTokenCounter } from "./assembly/budget.js";
 import { assemble } from "./assembly/assembler.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import { Level } from "./types.js";
@@ -48,9 +48,11 @@ export class SqueezeContextEngine implements ContextEngine {
   private turnIndex = 0;
   private memoryEnabled = true;
   private lastIngestedContent: string | undefined;
+  private tokenCounter?: (text: string) => number;
 
-  constructor(config: Partial<SqueezeConfig> = {}) {
+  constructor(config: Partial<SqueezeConfig> = {}, tokenCounter?: (text: string) => number) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.tokenCounter = tokenCounter;
   }
 
   // ── Lifecycle hooks ────────────────────────────────────────────
@@ -63,6 +65,11 @@ export class SqueezeContextEngine implements ContextEngine {
     }
 
     initSchema(this.db);
+
+    // Inject token counter if provided (e.g., OpenClaw runtime tokenizer)
+    if (this.tokenCounter) {
+      setTokenCounter(this.tokenCounter);
+    }
 
     this.messages = new MessageStore(this.db);
     this.dag = new DagStore(this.db);
@@ -81,6 +88,10 @@ export class SqueezeContextEngine implements ContextEngine {
   }
 
   async ingest(msg: Message, turnIndex?: number): Promise<void> {
+    // Guard: null/undefined/empty content → treat as L0 discard
+    if (!msg.content && msg.content !== "") return;
+    if (typeof msg.content !== "string") return;
+
     const start = performance.now();
     const effectiveTurn = turnIndex ?? this.turnIndex;
 
@@ -102,8 +113,16 @@ export class SqueezeContextEngine implements ContextEngine {
 
       if (cls.level === Level.Directive) {
         const key = extractDirectiveKey(msg.content);
-        const newId = this.directives.addDirective(key, msg.content, msgId);
-        this.directives.fixupSuperseded("directives", newId, key);
+        this.directives.addDirective(key, msg.content, msgId);
+      } else if (cls.level === Level.Preference) {
+        // Explicit user preference ("I prefer tabs", "我比較喜歡 X") detected
+        // at classification time. This is the path Codex flagged as missing:
+        // the L2 preference store existed but ingest never wrote to it, so
+        // any README claim about preference tracking was fiction. Implicit
+        // preferences that emerge only through repetition still need the
+        // mention-counting observation loop (not yet implemented).
+        const key = extractDirectiveKey(msg.content);
+        this.directives.addPreference(key, msg.content, cls.confidence, msgId);
       }
 
       this.circuitBreaker.recordClassifierSuccess();
@@ -123,8 +142,6 @@ export class SqueezeContextEngine implements ContextEngine {
   }
 
   async assemble(budget: TokenBudget): Promise<AssembledContext> {
-    const availableTokens = budget.available;
-
     const activeDirectives = this.memoryEnabled
       ? this.directives.getActiveDirectives()
       : [];
@@ -140,7 +157,7 @@ export class SqueezeContextEngine implements ContextEngine {
     }
 
     const budgetAlloc = allocateBudget(
-      availableTokens,
+      budget.maxTokens,
       budget.usedTokens,
       this.taskDetector.weights,
       this.config
@@ -172,6 +189,7 @@ export class SqueezeContextEngine implements ContextEngine {
     const currentTurn = this.turnIndex;
 
     // Ingest all messages from the turn with the same turnIndex
+    await this.ingest(turn.userMessage, currentTurn);
     await this.ingest(turn.assistantMessage, currentTurn);
     if (turn.toolMessages) {
       for (const toolMsg of turn.toolMessages) {
@@ -252,7 +270,8 @@ export class SqueezeContextEngine implements ContextEngine {
  *   api.registerContextEngine('squeeze-claw', squeezeClawFactory)
  */
 export const squeezeClawFactory: ContextEngineFactory = (config) => {
-  return new SqueezeContextEngine(config as Partial<SqueezeConfig>);
+  const { tokenCounter, ...rest } = config as Partial<SqueezeConfig> & { tokenCounter?: (text: string) => number };
+  return new SqueezeContextEngine(rest, tokenCounter);
 };
 
 // ── Helpers ──────────────────────────────────────────────────────

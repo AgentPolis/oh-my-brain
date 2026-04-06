@@ -199,3 +199,48 @@ describe("context-aware L0 classification", () => {
     expect(result.level).toBe(Level.Discard);
   });
 });
+
+describe("L2 preference detection", () => {
+  const opts = { confidenceThreshold: 0.7, mode: "hybrid" as const };
+
+  const PREFERENCE_SAMPLES = [
+    "I prefer tabs over spaces",
+    "I'd prefer to use TypeScript strict mode",
+    "I like the single-file approach better",
+    "I'd like the tests in a separate directory",
+    "I find this pattern cleaner than the previous one",
+    "that makes more sense to me",
+    "the new layout is easier to read",
+    "我比較喜歡用 TypeScript",
+    "我偏好把測試放在另一個資料夾",
+    "我喜歡這種排版",
+    "這樣比較順手",
+    "這個用起來比較直覺",
+  ];
+
+  for (const sample of PREFERENCE_SAMPLES) {
+    it(`classifies as L2 Preference: "${sample}"`, () => {
+      const result = classify({ role: "user", content: sample }, opts);
+      expect(result.level).toBe(Level.Preference);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.5);
+    });
+  }
+
+  it("L3 directive takes precedence over L2 preference when both patterns match", () => {
+    // "always I prefer tabs" — both "always" (L3) and "I prefer" (L2) match.
+    // L3 should win because it is checked first.
+    const result = classify(
+      { role: "user", content: "always I prefer tabs" },
+      opts
+    );
+    expect(result.level).toBe(Level.Directive);
+  });
+
+  it("plain observations are still L1, not L2", () => {
+    const result = classify(
+      { role: "user", content: "the build finished with no errors" },
+      opts
+    );
+    expect(result.level).toBe(Level.Observation);
+  });
+});

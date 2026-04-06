@@ -45,8 +45,21 @@ export function classify(msg: Message, opts: ClassifierOptions, previousContent?
     };
   }
 
+  // ── L2 detection: explicit preference statements ──────────────
+  // These are unambiguous user preferences ("I prefer tabs", "我比較喜歡 X")
+  // that don't need repetition to be confident. Implicit preferences that
+  // only emerge through repetition are handled separately by the mention-
+  // counting observation loop (planned).
+  if (hasPreferenceSignal(content)) {
+    return {
+      level: Level.Preference,
+      contentType,
+      confidence: 0.7,
+    };
+  }
+
   // ── Default: L1 Observation ────────────────────────────────────
-  // L2 promotion happens in the observation loop, not at classification time.
+  // L2 promotion via repetition happens in the observation loop.
   return {
     level: Level.Observation,
     contentType,
@@ -73,8 +86,25 @@ const DIRECTIVE_PATTERNS = [
   /\b(always|never|from now on|remember that|don't ever|do not ever)\b/i,
   /\b(my role is|i am a|i'm a)\b/i,
   /\b(rule|requirement|constraint|must|shall)\s*:/i,
+  /\b(should|shouldn't|needs? to|must not|too much|too many|reduce|improve|fix this)\b/i,
+  /(應該|不要|別再|太多|太少|搞錯|改善|改成|保持|一律|永遠|都要|需要|不能|不要再)/,
 ];
 
 function hasDirectiveSignal(content: string): boolean {
   return DIRECTIVE_PATTERNS.some((p) => p.test(content));
+}
+
+// L2 preference patterns — explicit "I prefer / I like / I find X easier" and
+// Chinese equivalents. Deliberately narrower than L3: these are soft
+// preferences the user has stated but not elevated to a rule. If a sentence
+// matches both L3 and L2 patterns, L3 wins because it is checked first.
+const PREFERENCE_PATTERNS = [
+  /\b(i prefer|i'd prefer|i would prefer|i like|i'd like|i would like)\b/i,
+  /\b(makes more sense|easier to read|easier to use|more readable)\b/i,
+  /\b(i find .{3,40} (easier|cleaner|nicer|better))/i,
+  /(我比較喜歡|我偏好|我喜歡|比較順手|比較直覺|用起來比較)/,
+];
+
+function hasPreferenceSignal(content: string): boolean {
+  return PREFERENCE_PATTERNS.some((p) => p.test(content));
 }
