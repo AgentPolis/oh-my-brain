@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * squeeze-candidates — review queue CLI for Memory Candidates.
+ * brain-candidates — review queue CLI for Memory Candidates.
  *
  * This is the human-in-the-loop half of the two-stage capture model.
  * Soft-signal candidates detected during compress runs accumulate in
@@ -9,12 +9,12 @@
  * list what's pending.
  *
  * Commands:
- *   squeeze-candidates list                  # show pending candidates
- *   squeeze-candidates list --all            # show all (incl. approved/rejected)
- *   squeeze-candidates approve <id>          # promote to MEMORY.md as-is
- *   squeeze-candidates approve <id> --as "..." # edit then promote
- *   squeeze-candidates reject <id>           # dismiss; won't be re-flagged
- *   squeeze-candidates status                # summary counts
+ *   brain-candidates list                  # show pending candidates
+ *   brain-candidates list --all            # show all (incl. approved/rejected)
+ *   brain-candidates approve <id>          # promote to MEMORY.md as-is
+ *   brain-candidates approve <id> --as "..." # edit then promote
+ *   brain-candidates reject <id>           # dismiss; won't be re-flagged
+ *   brain-candidates status                # summary counts
  *
  * All commands operate on the current working directory's project root.
  */
@@ -31,19 +31,20 @@ import {
   resolveCandidateId,
   saveCandidateStore,
 } from "./candidates.js";
+import { isDirectEntry } from "./is-main.js";
 
-const HELP_TEXT = `squeeze-candidates — Memory Candidates review queue
+const HELP_TEXT = `brain-candidates — Memory Candidates review queue
 
 Usage:
-  squeeze-candidates                     show pending candidates (alias for 'list')
-  squeeze-candidates list [--all]        list pending (or all) candidates
-  squeeze-candidates approve <id>        approve and write to MEMORY.md
-  squeeze-candidates approve <id> --as "..."   approve with edited text
-  squeeze-candidates reject <id>         mark as rejected (won't be re-flagged)
-  squeeze-candidates retire "<text>"     retire an existing MEMORY.md directive
+  brain-candidates                     show pending candidates (alias for 'list')
+  brain-candidates list [--all]        list pending (or all) candidates
+  brain-candidates approve <id>        approve and write to MEMORY.md
+  brain-candidates approve <id> --as "..."   approve with edited text
+  brain-candidates reject <id>         mark as rejected (won't be re-flagged)
+  brain-candidates retire "<text>"     retire an existing MEMORY.md directive
                                          (moves it to the archive section)
-  squeeze-candidates status              show counts by status
-  squeeze-candidates --help              this message
+  brain-candidates status              show counts by status
+  brain-candidates --help              this message
 
 Candidate IDs are content hashes; you can use any unique prefix.
 `;
@@ -82,7 +83,7 @@ function cmdList(projectRoot: string, showAll: boolean): number {
     process.stdout.write(`${formatCandidate(record)}\n\n`);
   }
   process.stdout.write(
-    "Review commands: squeeze-candidates approve <id> | reject <id>\n"
+    "Review commands: brain-candidates approve <id> | reject <id>\n"
   );
   return 0;
 }
@@ -96,7 +97,7 @@ function cmdApprove(
   const fullId = resolveCandidateId(store, idPrefix);
   if (!fullId) {
     process.stderr.write(
-      `No pending candidate matches id "${idPrefix}". Run 'squeeze-candidates list' to see available IDs.\n`
+      `No pending candidate matches id "${idPrefix}". Run 'brain-candidates list' to see available IDs.\n`
     );
     return 1;
   }
@@ -133,7 +134,7 @@ function cmdReject(projectRoot: string, idPrefix: string): number {
   const fullId = resolveCandidateId(store, idPrefix);
   if (!fullId) {
     process.stderr.write(
-      `No pending candidate matches id "${idPrefix}". Run 'squeeze-candidates list' to see available IDs.\n`
+      `No pending candidate matches id "${idPrefix}". Run 'brain-candidates list' to see available IDs.\n`
     );
     return 1;
   }
@@ -212,7 +213,7 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
   if (cmd === "approve") {
     const id = args[1];
     if (!id) {
-      process.stderr.write("Usage: squeeze-candidates approve <id> [--as \"text\"]\n");
+      process.stderr.write("Usage: brain-candidates approve <id> [--as \"text\"]\n");
       return 1;
     }
     return cmdApprove(projectRoot, id, parseEditFlag(args));
@@ -221,7 +222,7 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
   if (cmd === "reject") {
     const id = args[1];
     if (!id) {
-      process.stderr.write("Usage: squeeze-candidates reject <id>\n");
+      process.stderr.write("Usage: brain-candidates reject <id>\n");
       return 1;
     }
     return cmdReject(projectRoot, id);
@@ -230,7 +231,7 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
   if (cmd === "retire") {
     const text = args.slice(1).join(" ").trim();
     if (!text) {
-      process.stderr.write('Usage: squeeze-candidates retire "<text prefix>"\n');
+      process.stderr.write('Usage: brain-candidates retire "<text prefix>"\n');
       return 1;
     }
     return cmdRetire(projectRoot, text);
@@ -241,7 +242,7 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
 }
 
 // Only execute when run as a script (not when imported for testing).
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(["candidates-cli.js", "brain-candidates"])) {
   const exitCode = runCandidatesCli(process.argv, process.cwd());
   process.exit(exitCode);
 }

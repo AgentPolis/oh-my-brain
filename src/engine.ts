@@ -1,7 +1,10 @@
 /**
- * SqueezeContextEngine — main engine implementing the OpenClaw ContextEngine interface.
+ * SqueezeContextEngine — main engine implementing the OpenClaw ContextEngine
+ * interface. This is the core of oh-my-brain (formerly squeeze-claw). The
+ * class name is preserved for backward compatibility; `BrainEngine` is
+ * exported as a clearer alias.
  *
- * Registration: api.registerContextEngine('squeeze-claw', squeezeClawFactory)
+ * Registration: api.registerContextEngine('oh-my-brain', ohMyBrainFactory)
  * Docs: https://docs.openclaw.ai/concepts/context-engine
  */
 
@@ -32,8 +35,8 @@ import { DagStore } from "./storage/dag.js";
 
 export class SqueezeContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
-    id: "squeeze-claw",
-    name: "Squeeze Claw — Semantic Context Compression",
+    id: "oh-my-brain",
+    name: "oh-my-brain — Importance-Aware Agent Memory",
     ownsCompaction: true,
   };
 
@@ -61,7 +64,7 @@ export class SqueezeContextEngine implements ContextEngine {
     this.db = new Database(dbPath);
 
     if (!checkIntegrity(this.db)) {
-      console.warn("[squeeze-claw] Database integrity check failed, reinitializing");
+      console.warn("[oh-my-brain] Database integrity check failed, reinitializing");
     }
 
     initSchema(this.db);
@@ -127,7 +130,7 @@ export class SqueezeContextEngine implements ContextEngine {
 
       this.circuitBreaker.recordClassifierSuccess();
     } catch (err) {
-      console.error("[squeeze-claw] ingest error:", err);
+      console.error("[oh-my-brain] ingest error:", err);
       this.circuitBreaker.recordClassifierFailure();
 
       this.messages.insert(msg, effectiveTurn, {
@@ -266,13 +269,23 @@ export class SqueezeContextEngine implements ContextEngine {
  * Factory function for registering with OpenClaw.
  *
  * Usage:
- *   import { squeezeClawFactory } from 'squeeze-claw'
- *   api.registerContextEngine('squeeze-claw', squeezeClawFactory)
+ *   import { ohMyBrainFactory } from 'oh-my-brain'
+ *   api.registerContextEngine('oh-my-brain', ohMyBrainFactory)
+ *
+ * The old export name `squeezeClawFactory` is preserved below as a
+ * deprecated alias so existing integrations keep compiling during the
+ * rename transition.
  */
-export const squeezeClawFactory: ContextEngineFactory = (config) => {
+export const ohMyBrainFactory: ContextEngineFactory = (config) => {
   const { tokenCounter, ...rest } = config as Partial<SqueezeConfig> & { tokenCounter?: (text: string) => number };
   return new SqueezeContextEngine(rest, tokenCounter);
 };
+
+/** @deprecated Use `ohMyBrainFactory` instead. Kept for backward compat. */
+export const squeezeClawFactory = ohMyBrainFactory;
+
+/** Clearer alias for the main engine class. */
+export { SqueezeContextEngine as BrainEngine };
 
 // ── Helpers ──────────────────────────────────────────────────────
 

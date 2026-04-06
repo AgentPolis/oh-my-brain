@@ -292,7 +292,7 @@ export function syncCodexSessions(options: CodexSyncOptions = {}): CodexSyncResu
     const memoryCandidates = extractMemoryCandidates(processed);
 
     // Persist candidates into the per-project store so Codex-detected soft
-    // signals show up in `squeeze-candidates list` alongside Claude Code ones.
+    // signals show up in `brain-candidates list` alongside Claude Code ones.
     if (memoryCandidates.length > 0) {
       const candidateStore = loadCandidateStore(parsed.cwd);
       ingestCandidates(candidateStore, memoryCandidates, {

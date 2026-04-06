@@ -1,5 +1,5 @@
 /**
- * SQLite schema for squeeze-claw.
+ * SQLite schema for oh-my-brain.
  * Extends lossless-claw compatible structure with L-level columns,
  * preference store, directive store, and DAG LOD tiers.
  */
@@ -11,6 +11,7 @@ export const SCHEMA_VERSION = 2;
 export function initSchema(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  db.pragma("busy_timeout = 5000"); // 5s retry on SQLITE_BUSY
 
   db.exec(`
     -- Schema version tracking
@@ -87,11 +88,6 @@ export function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_directives_key      ON directives(key)  WHERE superseded_by IS NULL;
   `);
 
-  // Set schema version
-  db.prepare(
-    `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`
-  ).run(String(SCHEMA_VERSION));
-
   // Version-gated migrations
   const currentVersion = (db
     .prepare(`SELECT value FROM schema_meta WHERE key = 'version'`)
@@ -105,6 +101,11 @@ export function initSchema(db: Database.Database): void {
     }
     db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '2')`).run();
   }
+
+  // Persist current schema version after migrations.
+  db.prepare(
+    `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`
+  ).run(String(SCHEMA_VERSION));
 }
 
 /**
@@ -117,7 +118,7 @@ export function checkIntegrity(db: Database.Database): boolean {
 
 /**
  * Migrate from lossless-claw database.
- * Adds squeeze-claw columns to existing tables if they don't exist.
+ * Adds oh-my-brain columns to existing tables if they don't exist.
  */
 export function migrateFromLosslessClaw(db: Database.Database): void {
   const existingColumns = db

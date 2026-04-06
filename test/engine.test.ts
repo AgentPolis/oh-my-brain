@@ -34,7 +34,7 @@ describe("SqueezeContextEngine", () => {
   });
 
   it("exposes correct engine info", () => {
-    expect(engine.info.id).toBe("squeeze-claw");
+    expect(engine.info.id).toBe("oh-my-brain");
     expect(engine.info.ownsCompaction).toBe(true);
   });
 

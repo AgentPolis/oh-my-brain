@@ -1,28 +1,30 @@
 {
-  "name": "squeeze-claw",
-  "version": "0.1.0",
-  "description": "Cross-agent context compression and durable memory layer with Claude Code, Codex, and OpenClaw adapters",
+  "name": "oh-my-brain",
+  "version": "0.2.0",
+  "description": "The second brain that follows you across every agent. Importance-aware memory for Claude Code, Codex, and MCP-compatible tools. (Formerly squeeze-claw.)",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AgentPolis/squeeze-claw.git"
+    "url": "https://github.com/AgentPolis/oh-my-brain.git"
   },
-  "homepage": "https://github.com/AgentPolis/squeeze-claw#readme",
+  "homepage": "https://github.com/AgentPolis/oh-my-brain#readme",
   "bugs": {
-    "url": "https://github.com/AgentPolis/squeeze-claw/issues"
+    "url": "https://github.com/AgentPolis/oh-my-brain/issues"
   },
   "bin": {
-    "squeeze-compress": "./dist/cli/compress.js",
-    "squeeze-codex-sync": "./dist/cli/codex-sync.js",
-    "squeeze-audit": "./dist/cli/audit.js",
-    "squeeze-candidates": "./dist/cli/candidates-cli.js"
+    "oh-my-brain": "./dist/cli/brain.js",
+    "brain-compress": "./dist/cli/compress.js",
+    "brain-codex-sync": "./dist/cli/codex-sync.js",
+    "brain-audit": "./dist/cli/audit.js",
+    "brain-candidates": "./dist/cli/candidates-cli.js",
+    "brain-mcp": "./dist/cli/mcp-server.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts && tsup cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts --format esm --no-dts --out-dir dist/cli",
-    "build:cli": "tsup cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts --format esm --no-dts --out-dir dist/cli",
+    "build": "tsup src/index.ts --format esm --dts && tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts --format esm --no-dts --out-dir dist/cli",
+    "build:cli": "tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts --format esm --no-dts --out-dir dist/cli",
     "dev": "tsup src/index.ts --format esm --dts --watch",
     "test": "vitest",
     "test:run": "vitest run",
@@ -30,13 +32,16 @@
     "verify": "npm run lint && npm run test:run && npm run build && npm pack --dry-run"
   },
   "keywords": [
-    "openclaw",
+    "second-brain",
+    "agent-memory",
     "context-engine",
-    "context-compression",
-    "token-optimization",
-    "llm",
-    "agent",
-    "semantic-triage"
+    "directive-protection",
+    "cross-agent",
+    "mcp",
+    "claude-code",
+    "codex",
+    "openclaw",
+    "llm"
   ],
   "engines": {
     "node": ">=20 <26"
@@ -45,7 +50,8 @@
     "dist",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/why-memory-candidates.md"
   ],
   "dependencies": {
     "better-sqlite3": "^11.0.0"

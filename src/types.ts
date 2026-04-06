@@ -1,9 +1,9 @@
 /**
- * squeeze-claw type definitions.
+ * oh-my-brain type definitions (formerly squeeze-claw).
  *
  * The ContextEngine interface mirrors what OpenClaw exposes via
- * `openclaw/plugin-sdk/core`.  If the upstream shapes change we
- * only need to update this file.
+ * `openclaw/plugin-sdk/core`. If the upstream shapes change we only need
+ * to update this file.
  */
 
 // ── Importance Levels ────────────────────────────────────────────
@@ -85,6 +85,8 @@ export interface DagNode {
   overview: string;    // LOD tier 1 – key facts (~50-100 tokens)
   detail: string;      // LOD tier 2 – full originals
   sourceIds: number[]; // message IDs summarised by this node
+  minTurn: number | null; // first turn in this summary batch (if known)
+  maxTurn: number | null; // last turn in this summary batch (if known)
   level: Level;        // highest level among sources
   createdAt: string;
 }
@@ -106,6 +108,15 @@ export const DEFAULT_TASK_WEIGHTS: Record<TaskType, TaskWeights> = {
   chat:      { history: 0.50, toolResults: 0.10, directives: 0.20 },
   debug:     { history: 0.15, toolResults: 0.60, directives: 0.15 },
 };
+
+// ── Token Counting ───────────────────────────────────────────────
+
+/**
+ * Token counting function.
+ * When running inside OpenClaw, inject the runtime's model-aware tokenizer.
+ * Falls back to heuristic estimator when not provided.
+ */
+export type TokenCounter = (text: string) => number;
 
 // ── Configuration ────────────────────────────────────────────────
 
@@ -240,6 +251,6 @@ export interface ContextEngine {
 
 /**
  * Factory function type for plugin registration.
- * Usage: api.registerContextEngine('squeeze-claw', squeezeClawFactory)
+ * Usage: api.registerContextEngine('oh-my-brain', ohMyBrainFactory)
  */
 export type ContextEngineFactory = (config: Record<string, unknown>) => ContextEngine;

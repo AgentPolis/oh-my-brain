@@ -26,20 +26,25 @@ const HEAD_TAIL_CHARS = 100;
 const CHARS_PER_TOKEN = 4;
 const MAX_DIRECTIVE_CHARS = 500;
 
-export const HELP_TEXT = `squeeze-compress
+export const HELP_TEXT = `brain-compress (oh-my-brain)
 
-Hook-first context compression for Claude Code / OpenClaw-style session logs.
+Hook-first importance-aware memory for Claude Code session logs. Formerly
+squeeze-compress. Classifies every message by importance, compresses stale
+observations, and protects your explicit rules from ever being forgotten.
 
 Usage:
-  squeeze-compress
-  squeeze-compress --help
-  squeeze-compress --version
+  brain-compress
+  brain-compress --help
+  brain-compress --version
 
 Behavior:
   - looks for the latest Claude Code session JSONL for the current cwd
-  - classifies messages into L0-L3
+  - classifies messages into L0 (discard), L1 (observation), L2
+    (preference), L3 (directive)
   - compresses stale L1 observations
   - writes new L3 directives into ./MEMORY.md
+  - queues soft signals (corrections, preferences) into .squeeze/candidates.json
+    for review via brain-candidates list/approve/reject
 
 Notes:
   - output is written to stderr so it is safe for hook usage
@@ -372,7 +377,7 @@ export function appendDirectivesToMemory(
     });
   } catch (err) {
     process.stderr.write(
-      `[squeeze] warning: MEMORY.md lock unavailable (${(err as Error).message}). Writing without lock.\n`
+      `[brain] warning: MEMORY.md lock unavailable (${(err as Error).message}). Writing without lock.\n`
     );
     return performDirectiveWrite(cleaned, memoryPath, metadata);
   }
@@ -405,7 +410,7 @@ export function retireDirective(
     return withLock(memoryPath, () => performRetireDirective(memoryPath, needle));
   } catch (err) {
     process.stderr.write(
-      `[squeeze] warning: MEMORY.md lock unavailable (${(err as Error).message}). Retiring without lock.\n`
+      `[brain] warning: MEMORY.md lock unavailable (${(err as Error).message}). Retiring without lock.\n`
     );
     return performRetireDirective(memoryPath, needle);
   }
@@ -492,9 +497,12 @@ function performDirectiveWrite(
   const timestamp = new Date().toISOString().slice(0, 10);
   const sourceTag = metadata?.source ?? "unknown";
   const sessionTag = metadata?.sessionId ? ` session:${metadata.sessionId}` : "";
+  // Heading format is "## oh-my-brain directives (YYYY-MM-DD) [source:...]".
+  // The audit parser and parseExistingDirectives also accept the legacy
+  // "squeeze-claw directives" prefix so files from v0.1 keep working.
   const section = [
     "",
-    `## squeeze-claw directives (${timestamp}) [source:${sourceTag}${sessionTag}]`,
+    `## oh-my-brain directives (${timestamp}) [source:${sourceTag}${sessionTag}]`,
     "",
     ...newDirectives.map((d) => `- [${sourceTag}${sessionTag ? ` ${metadata!.sessionId}` : ""}] ${d}`),
     "",
@@ -538,7 +546,7 @@ export async function main() {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("squeeze-claw 0.1.0\n");
+    process.stdout.write("oh-my-brain 0.2.0\n");
     return;
   }
 
@@ -546,7 +554,7 @@ export async function main() {
   const sessionPath = findSessionJsonl(cwd);
 
   if (!sessionPath) {
-    process.stderr.write(`[squeeze] no session found for ${cwd}\n`);
+    process.stderr.write(`[brain] no session found for ${cwd}\n`);
     return;
   }
 
@@ -601,27 +609,27 @@ export async function main() {
 
   if (savedTokens > 0) {
     process.stderr.write(
-      `[squeeze] ${totalMsgs} msgs → ${remaining} after compression. Saved ~${savedTokens} tokens (${savedPercent}% chars)\n`
+      `[brain] ${totalMsgs} msgs → ${remaining} after compression. Saved ~${savedTokens} tokens (${savedPercent}% chars)\n`
     );
   }
   if (directivesWritten > 0) {
     process.stderr.write(
-      `[squeeze] ${directivesWritten} L3 directive${directivesWritten === 1 ? "" : "s"} → MEMORY.md\n`
+      `[brain] ${directivesWritten} L3 directive${directivesWritten === 1 ? "" : "s"} → MEMORY.md\n`
     );
   }
   if (savedTokens === 0 && directivesWritten === 0) {
-    process.stderr.write(`[squeeze] ${totalMsgs} msgs scanned. Nothing to compress.\n`);
+    process.stderr.write(`[brain] ${totalMsgs} msgs scanned. Nothing to compress.\n`);
   }
   if (newCandidates.length > 0) {
     process.stderr.write(
-      `[squeeze] ${newCandidates.length} new candidate${newCandidates.length === 1 ? "" : "s"} flagged for review (${totalPending} total pending). Run 'squeeze-candidates list' to review.\n`
+      `[brain] ${newCandidates.length} new candidate${newCandidates.length === 1 ? "" : "s"} flagged for review (${totalPending} total pending). Run 'brain-candidates list' to review.\n`
     );
   } else if (totalPending > 0 && directivesWritten === 0) {
     process.stderr.write(
-      `[squeeze] ${totalPending} candidate${totalPending === 1 ? "" : "s"} still awaiting review. Run 'squeeze-candidates list'.\n`
+      `[brain] ${totalPending} candidate${totalPending === 1 ? "" : "s"} still awaiting review. Run 'brain-candidates list'.\n`
     );
   }
   if (directivesWritten > 0) {
-    process.stderr.write(`[squeeze] provenance logged → ${projectLogPath}\n`);
+    process.stderr.write(`[brain] provenance logged → ${projectLogPath}\n`);
   }
 }

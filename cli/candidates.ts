@@ -148,7 +148,7 @@ export function listCandidates(
 
 /**
  * Resolve a short-prefix ID to a full candidate ID. Lets the CLI accept
- * `squeeze-candidates approve abc123` even when the full ID is 12 chars.
+ * `brain-candidates approve abc123` even when the full ID is 12 chars.
  * Returns null if no match or ambiguous.
  */
 export function resolveCandidateId(store: CandidateStore, prefix: string): string | null {

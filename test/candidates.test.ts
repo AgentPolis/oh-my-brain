@@ -349,7 +349,7 @@ describe("runCandidatesCli", () => {
   it("retire without text argument returns usage error", () => {
     const code = runCandidatesCli(["node", "cli", "retire"], tmpDir);
     expect(code).toBe(1);
-    expect(stderr).toContain("Usage: squeeze-candidates retire");
+    expect(stderr).toContain("Usage: brain-candidates retire");
   });
 
   it("status prints counts", () => {
@@ -370,7 +370,7 @@ describe("runCandidatesCli", () => {
   it("--help returns help text", () => {
     const code = runCandidatesCli(["node", "cli", "--help"], tmpDir);
     expect(code).toBe(0);
-    expect(stdout).toContain("squeeze-candidates");
+    expect(stdout).toContain("brain-candidates");
     expect(stdout).toContain("approve");
     expect(stdout).toContain("reject");
   });

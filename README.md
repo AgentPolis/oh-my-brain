@@ -1,236 +1,319 @@
-# squeeze-claw
+# oh-my-brain 🧠
 
-**Cut context token cost by 30-60% without losing what matters.**
+**You shouldn't have to say "remember that". A real brain just remembers.**
 
-squeeze-claw is a [ContextEngine](https://docs.openclaw.ai/concepts/context-engine) plugin for [OpenClaw](https://github.com/openclaw/openclaw) that replaces the default context management with semantic-aware compression. It classifies every message by importance, discards noise, and preserves the directives and code your agent actually needs.
+oh-my-brain is the second brain for AI agents. It notices when you
+correct your agent, when you push back, when you keep doing the same
+thing — and asks if you want to remember. Other memory layers wait for
+explicit `always` and `never` commands. oh-my-brain watches what you
+actually do and meant.
 
-```
-100-turn coding session
-─────────────────────────────────────
-Before (keep everything):  4,812 tokens/call
-After  (squeeze-claw):     1,740 tokens/call
-                           ────────────────
-                           saved 63.9%  💰
-```
+It travels with you across every tool: Claude Code, Codex, Cursor,
+Windsurf, and anything that speaks MCP. Your rules, preferences, and
+corrections survive every context reset, every session boundary, every
+agent switch.
 
-## Why
+> Formerly published as `squeeze-claw`. The compression still works.
+> The real value turned out to be the part that decides what's worth
+> keeping. That's the brain.
 
-Every token in the context window costs money. In a typical multi-turn agent session:
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
-- **~40% is noise** — "ok", "got it", "thanks", empty tool outputs, status messages
-- **~25% is stale** — tool results from 30 turns ago that will never be referenced again
-- **~5% is critical** — user directives ("always use TDD", "never push to main") that must survive forever
+## The story behind it
 
-OpenClaw packs everything into every API call. squeeze-claw is selective:
+We discovered the real problem by dogfooding our own tool.
 
-| Level | What | Policy |
-|-------|------|--------|
-| **L0** — Noise | "ok", "got it", empty results | Discard immediately |
-| **L1** — Observation | Regular messages, tool output | Store, compress over time |
-| **L2** — Preference | Confirmed user preferences | Extract as structured KV |
-| **L3** — Directive | "always", "never", "remember" | **Never compressed. Never lost.** |
+We were testing it across two windows. We gave the agent corrections like:
 
-## Quick Start
+- "你是不是搞錯狀況了"
+- "這個本來就要一直移動"
+- "右邊側邊欄太多提醒了"
 
-### Install
+Any human would obviously remember these. The classifier stored **none**
+of them. It was waiting for "always" or "never" or "remember that". Real
+humans don't talk like that.
+
+So we built [**Memory Candidates**](docs/why-memory-candidates.md) — a
+two-stage capture system. Strong, explicit rules go straight into your
+brain. Soft signals (corrections, preferences, friction patterns) land
+in a review queue you can approve, edit, or reject. Nothing important
+gets dropped just because you forgot to phrase it like an RFC.
+
+That's the difference between a database and a brain.
+
+## What it does
+
+Four importance levels, plus the thing nobody else does:
+
+- **L0 Discard** — "ok", "got it", empty tool output. Dropped immediately.
+- **L1 Observation** — Regular messages and tool results. Compressed as
+  they age out of the fresh tail.
+- **L2 Preference** — Explicit statements like "I prefer tabs" or
+  "我比較喜歡 TypeScript". Promoted with confidence scores.
+- **L3 Directive** — Your "always" and "never" rules. **Never compressed.
+  Never summarized. Never forgotten.**
+- **Memory Candidates** — The soft signals: corrections, complaints,
+  implicit preferences. They land in a review queue you curate, not the
+  bit bucket.
+
+When you switch from Claude Code to Codex to Cursor, all of the above
+travel with you via a portable `MEMORY.md` file plus an MCP server.
+
+## How it's different
+
+|                          | Other memory layers         | oh-my-brain                                        |
+| ------------------------ | --------------------------- | -------------------------------------------------- |
+| Storage model            | Store everything equally    | Classify by importance, protect what matters       |
+| Soft signals             | Ignored unless you say "always" | Captured as Memory Candidates for review       |
+| Forgotten rules          | Possible                    | Impossible (L3 immortality)                        |
+| Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
+| Trust model              | Black box                   | Plain text `MEMORY.md` you can inspect, edit, commit |
+| Origin                   | Built from spec             | Built from real-use frustration                    |
+
+## Installation
 
 ```bash
-# requires OpenClaw >= 2026.3.7
-cd your-openclaw-project
-pnpm add squeeze-claw
+npm install -g oh-my-brain
 ```
 
-### Enable
+After install, you get these binaries:
 
-Add to your OpenClaw config (`settings.json` or `openclaw.config.json`):
+```bash
+oh-my-brain        # umbrella command (learn this one first)
+brain-compress     # Claude Code Stop hook
+brain-codex-sync   # Codex session watcher
+brain-candidates   # Memory Candidates review queue
+brain-audit        # human-readable markdown audit
+brain-mcp          # MCP server (for Cursor, Windsurf, Claude Desktop, etc.)
+```
+
+## Quick start
+
+### As a Claude Code Stop hook
+
+Add this to `~/.claude/settings.json`:
 
 ```json
 {
-  "plugins": {
-    "entries": {
-      "squeeze-claw": {
-        "enabled": true
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "brain-compress"
+          }
+        ]
       }
+    ]
+  }
+}
+```
+
+After every Claude Code session, `MEMORY.md` in your project root picks
+up any new directives and new soft signals appear in the review queue:
+
+```bash
+brain-candidates list
+# → 2 pending candidates:
+#   f22e9b2a [seen 3x] 這個本來就要一直移動
+#   a103e8c9 [seen 1x] 右邊側邊欄太多提醒了
+brain-candidates approve f22e9b2a --as "the cursor should always keep moving"
+```
+
+### As a Codex sync agent
+
+```bash
+brain-codex-sync           # one-shot
+brain-codex-sync --watch   # continuous
+./scripts/install-codex-watch.sh  # macOS LaunchAgent
+```
+
+### As an MCP server for Cursor / Windsurf / Claude Desktop
+
+Point any MCP client at the `brain-mcp` binary:
+
+```json
+{
+  "mcpServers": {
+    "oh-my-brain": {
+      "command": "brain-mcp",
+      "args": [],
+      "env": { "OH_MY_BRAIN_PROJECT_ROOT": "/path/to/your/project" }
     }
   }
 }
 ```
 
-That's it. squeeze-claw registers itself as the active ContextEngine.
+The client gets five tools:
 
-### Verify
+- `brain_remember` — write a new L3 directive
+- `brain_recall` — read all active directives
+- `brain_candidates` — list, add, approve, or reject Memory Candidates
+- `brain_retire` — move a stale directive into the archive section
+- `brain_status` — counts and health info
 
-After a few turns, check the status:
+### As an OpenClaw plugin
 
-```
-/squeeze status
-```
+```typescript
+import { ohMyBrainFactory } from "oh-my-brain";
 
-You'll see something like:
-
-```
-squeeze-claw status
-  Turn: 47
-  Messages: L0: 0 (discarded) | L1: 89 | L2: 3 | L3: 5
-  Task type: coding (weights: tool 55% | history 20% | directives 15%)
-  Memory: enabled (12% of budget)
-  Mode: normal
+api.registerContextEngine("oh-my-brain", ohMyBrainFactory);
 ```
 
-## How It Works
+## The MEMORY.md contract
 
-```
-Message in
-    │
-    ▼
-┌─────────────┐     ┌──────────┐
-│  L0 Regex   │────▶│ Discard  │  "ok", "thanks", empty output
-│  (<1ms)     │     └──────────┘
-└──────┬──────┘
-       │ not noise
-       ▼
-┌─────────────┐     ┌──────────────────────────┐
-│  Classify   │────▶│ L3 → Directive Store     │  never compressed
-│  L1/L2/L3   │     │ L2 → Preference Store    │  structured KV
-└──────┬──────┘     │ L1 → Messages DB         │  standard storage
-       │            └──────────────────────────┘
-       ▼
-┌─────────────┐
-│  Assemble   │  On each API call:
-│  (budget-   │  1. System prompt (fixed)
-│   aware)    │  2. L3 directives (always)
-│             │  3. Fresh tail (last 20 msgs)
-│             │  4. Task-weighted history
-└─────────────┘
+oh-my-brain's durable storage is just a markdown file:
+
+```markdown
+## oh-my-brain directives (2026-04-06) [source:claude session:abc-123]
+
+- [claude abc-123] Always use TypeScript strict mode
+- [claude abc-123] Never commit generated files
+
+## oh-my-brain directives (2026-04-06) [source:codex session:xyz-456]
+
+- [codex xyz-456] Always parameterize SQL queries
 ```
 
-### Task-Aware Budget
+It's deliberately boring:
 
-squeeze-claw detects what you're doing and adjusts what goes into the context:
+- easy to inspect
+- easy to diff
+- easy to commit to git
+- every agent can read it — the schema is the file format itself
+- you can hand-edit it and oh-my-brain will respect your edits
 
-| Task | Tool Results | History | Directives |
-|------|-------------|---------|------------|
-| Coding | 55% | 20% | 15% |
-| Debug | 60% | 15% | 15% |
-| Research | 45% | 30% | 15% |
-| Planning | 15% | 45% | 30% |
-| Chat | 10% | 50% | 20% |
+No database lock-in, no cloud, no API keys.
 
-### Circuit Breaker
+## Benchmarks (honest version)
 
-If something goes wrong (classifier fails, latency spikes), squeeze-claw degrades gracefully to lossless-claw-equivalent behavior. Check with `/squeeze health`.
+We're making this section deliberately narrow because our previous
+numbers were over-confident.
 
-## Commands
+### What we measure
 
-| Command | Description |
-|---------|------------|
-| `/squeeze status` | Token composition, task type, budget allocation |
-| `/squeeze directives list` | All stored L3 directives |
-| `/squeeze directives add "..."` | Manually add a directive |
-| `/squeeze directives remove <id>` | Remove a directive |
-| `/squeeze budget` | Show/adjust context budget weights |
-| `/squeeze task` | Show/override detected task type |
-| `/squeeze health` | Diagnostics: integrity, latency, circuit breaker |
-| `/squeeze memory off` | Disable memory injection for current session |
-| `/squeeze memory on` | Re-enable memory injection |
-| `/squeeze migrate` | Migrate from lossless-claw database |
+| Scenario                                              | Result               | Caveat                  |
+| ----------------------------------------------------- | -------------------- | ----------------------- |
+| Real Claude Code session replay (research-heavy)      | **74.1% — 82.1%** char reduction | Heuristic: chars ÷ 4 estimates tokens; not provider billing |
+| Real Claude Code session replay (workspace scanning)  | **30.7%** char reduction | Session-shape dependent |
+| Directive retention after 100+ turns of mixed content | **100%** (10 of 10)  | Deterministic eval; in-memory classifier |
+| Cross-agent handoff (6-scenario integration test)     | **6 of 6 pass**      | See [cross-agent-handoff.test.ts](test/cross-agent-handoff.test.ts) |
 
-## Configuration
-
-All settings are optional. Defaults work well for most sessions.
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "squeeze-claw": {
-        "enabled": true,
-        "config": {
-          "freshTailCount": 20,
-          "memoryInjectionCapPercent": 15,
-          "taskDetection": true,
-          "prefetch": true
-        }
-      }
-    }
-  }
-}
-```
-
-<details>
-<summary>Full configuration reference</summary>
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `freshTailCount` | 20 | Number of recent messages always included |
-| `contextThreshold` | 0.75 | Context usage ratio that triggers compression |
-| `triageMode` | "hybrid" | Classification mode: "hybrid", "regex", or "llm" |
-| `triageConfidenceThreshold` | 0.7 | Below this → default to L1 (safe fallback) |
-| `taskDetection` | true | Auto-detect task type for budget allocation |
-| `prefetch` | true | Predictive memory prefetch |
-| `prefetchTopK` | 5 | Number of summaries to prefetch |
-| `memoryInjectionCapPercent` | 15 | Max % of budget for memory (directives + preferences) |
-| `preferenceConfidenceThreshold` | 0.5 | Min confidence for L2 preferences to be injected |
-| `dagSummaryLOD` | true | Enable multi-tier summary detail levels |
-
-</details>
-
-## Migrating from lossless-claw
-
-squeeze-claw extends the lossless-claw database schema. Existing databases work as-is:
-
-```
-/squeeze migrate
-```
-
-This adds the new columns (`level`, `content_type`, `confidence`) to your existing messages. All existing messages default to L1. If you disable squeeze-claw later, lossless-claw can still read the database (it ignores the extra columns).
-
-## Benchmarks
-
-Tested on simulated multi-turn sessions (50 turns coding, 80% noise):
-
-| Metric | lossless-claw | squeeze-claw | Improvement |
-|--------|--------------|-------------|-------------|
-| Tokens per call (coding, 50 turns) | ~4,800 | ~1,700 | **-64%** |
-| Tokens per call (noisy, 80% noise) | ~800 | ~290 | **-64%** |
-| Directive retention (100+ turns) | N/A | **100%** | 10/10 directives recalled |
-| Memory degradation | N/A | **<10%** | Fresh tail not crowded out |
-| Classification latency | N/A | **<1ms** | Regex fast-path, no API calls |
-
-Run benchmarks yourself:
+Reproduce these locally with:
 
 ```bash
-pnpm test:run
+npm run test:run -- eval/
+npm run test:run -- cross-agent-handoff
+npm run test:run -- directive-retention
 ```
 
-## Development
+### What we don't measure yet
+
+- **Provider-side billing savings.** We estimate tokens as `chars ÷ 4`.
+  Real savings depend on model, tokenizer, and session shape.
+- **Quality impact in live work.** We have no live telemetry yet, only
+  eval suites and replays. If you want to help run a trial, open an issue.
+
+See [`docs/real-session-replay-eval.md`](docs/real-session-replay-eval.md)
+for the full replay methodology and
+[`docs/context-structure-and-intervention.md`](docs/context-structure-and-intervention.md)
+for an honest breakdown of what oh-my-brain can and can't influence.
+
+## FAQ
+
+### Why not just use Claude's memory tool?
+
+Claude's memory tool is single-agent. It lives inside Claude. When you
+switch to Codex, it's gone. oh-my-brain writes to a portable `MEMORY.md`
+that lives in your project, readable by Claude, Codex, Cursor, or any
+future tool. It's also importance-aware — Claude's memory treats all
+stored items equally; oh-my-brain protects L3 directives from
+compression in a way Claude memory cannot, and surfaces soft signals
+via Memory Candidates.
+
+### Why not just use Memorix / Mem0 / Memori?
+
+These are memory stores. They store your data, retrieve it on demand,
+and treat all data roughly equally. oh-my-brain is a brain — it actively
+classifies importance, protects critical rules from being forgotten,
+compresses noise, and asks you about the fuzzy cases via Memory
+Candidates. The difference matters when you have rules that **must**
+survive context resets, not just data that's nice to recall.
+
+### Do you use LLMs to classify messages?
+
+Not yet. The current classifier is 100% regex heuristics — fast (<1ms
+per message), deterministic, zero API cost. An LLM fallback for
+ambiguous cases (likely Haiku) is on the roadmap. The architecture is
+ready for it; the release isn't.
+
+### What about privacy?
+
+Everything is local. No cloud. No API keys. No telemetry. `MEMORY.md`
+lives in your project directory. The SQLite store lives in `.squeeze/`
+(gitignored by default; kept at that path for backward compatibility).
+You can inspect, edit, commit, or delete any of it.
+
+### Is the L3 classifier safe against prompt injection?
+
+MEMORY.md is a trust boundary. If a malicious document in your workspace
+gets classified as an L3 directive, it will be protected forever. We
+recommend:
+
+1. Treat `MEMORY.md` as code — review it in PRs
+2. Use `brain-candidates` review queue for anything uncertain
+3. Run `brain-audit` regularly to inspect recent memory writes
+
+## v0.2 status
+
+**Phase 1: credibility pass — shipped**
+
+- [x] Importance-aware classification (L0–L3)
+- [x] Memory Candidates review queue (`brain-candidates`)
+- [x] MEMORY.md write lock (cross-process safe)
+- [x] `brain-candidates retire` for superseding stale directives
+- [x] L2 preferences wired into ingest
+- [x] Cross-agent handoff integration test
+- [x] MCP server (`brain-mcp`)
+- [x] Full rename from `squeeze-claw` to `oh-my-brain`
+
+**Phase 2: launch prep — in progress**
+
+- [ ] Live trial telemetry
+- [ ] LLM-backed classifier for ambiguous cases
+- [ ] Repetition-based L2 promotion
+- [ ] Landing page at ohmybrain.dev
+
+See [`TODOS.md`](TODOS.md) for the full roadmap.
+
+## Running tests
 
 ```bash
-git clone https://github.com/nicholasgasior/squeeze-claw.git
-cd squeeze-claw
-pnpm install
-pnpm test        # watch mode
-pnpm test:run    # single run (76 tests)
-pnpm build       # compile to dist/
-pnpm lint        # type check
+npm test           # watch mode
+npm run test:run   # single run
+npm run verify     # lint + tests + build + pack dry-run
 ```
 
-## Roadmap
+## Runtime requirements
 
-- [x] L0 regex noise filter (30 patterns)
-- [x] L3 directive store with conflict resolution
-- [x] Task-aware budget allocation with EMA blending
-- [x] Circuit breaker with graceful degradation
-- [x] lossless-claw migration tool
-- [ ] LLM-based classifier (Haiku) for L1/L2/L3 distinction
-- [ ] DAG compression (`compact()`)
-- [ ] L1 → L2 preference promotion
-- [ ] Predictive memory prefetch
-- [ ] Agent tools (`squeeze_search`, `squeeze_expand`)
-- [ ] Tool output truncation (highest ROI pending feature)
+- Node.js 20 – 25 (recommended: Node 22 LTS)
+- If `better-sqlite3` was built under a different Node version:
+
+```bash
+npm rebuild better-sqlite3
+```
 
 ## License
 
-AGPL-3.0 with non-commercial restriction. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
 
-Commercial licensing available — contact the maintainers.
+For commercial licensing inquiries, contact: hs.ze.lab@gmail.com
+
+## See also
+
+- [`docs/why-memory-candidates.md`](docs/why-memory-candidates.md) — the origin story for the core insight
+- [`docs/cross-agent-demo.md`](docs/cross-agent-demo.md) — reproducible handoff demo
+- [`docs/context-structure-and-intervention.md`](docs/context-structure-and-intervention.md) — honest scope of what oh-my-brain controls
+- [`docs/real-session-replay-eval.md`](docs/real-session-replay-eval.md) — benchmark methodology
