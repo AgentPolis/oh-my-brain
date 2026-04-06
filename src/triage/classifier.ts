@@ -86,8 +86,11 @@ const DIRECTIVE_PATTERNS = [
   /\b(always|never|from now on|remember that|don't ever|do not ever)\b/i,
   /\b(my role is|i am a|i'm a)\b/i,
   /\b(rule|requirement|constraint|must|shall)\s*:/i,
-  /\b(should|shouldn't|needs? to|must not|too much|too many|reduce|improve|fix this)\b/i,
-  /(應該|不要|別再|太多|太少|搞錯|改善|改成|保持|一律|永遠|都要|需要|不能|不要再)/,
+  // L3 Chinese patterns are restricted to the strongest imperatives only.
+  // Softer signals like "應該", "太多", "搞錯" are intentionally excluded here
+  // because they trigger false positives on questions and observations
+  // ("這應該怎麼做?" should not be L3). Those live in Memory Candidates.
+  /(一律|永遠|都要|不要再|別再|從現在開始|絕對不能)/,
 ];
 
 function hasDirectiveSignal(content: string): boolean {

@@ -222,17 +222,29 @@ describe("processMessages", () => {
     expect(result[0].level).toBe(Level.Directive);
   });
 
-  it("classifies user corrective UI feedback as L3 when it expresses durable behavior expectations", () => {
-    const directive = makeEntry(
+  it("classifies soft-signal corrective feedback as L1 and surfaces it as a Memory Candidate (not L3)", () => {
+    // This is the exact kind of natural-language correction described in
+    // docs/why-memory-candidates.md. "應該", "太多", "搞錯", "改善" are soft
+    // signals: obviously important to a human, but NOT explicit imperatives
+    // like "always X" or "never Y". The product's two-stage capture model
+    // says these belong in the Memory Candidates review queue, not auto-
+    // promoted to L3 directives. A previous version of the classifier
+    // matched these as L3, which caused false positives on any sentence
+    // containing "應該" or "太多" — including questions.
+    const softSignal = makeEntry(
       "user",
       "怎麼回事，你剛剛改完辦公室那個，變成我移動時，指標都沒移動了。應該都是要時時移動的，另外右邊側邊欄太多提醒了，能怎麼改善"
     );
     const entries = [
-      directive,
+      softSignal,
       ...Array.from({ length: 20 }, () => makeEntry("user", "other")),
     ];
     const result = processMessages(entries as any);
-    expect(result[0].level).toBe(Level.Directive);
+    expect(result[0].level).not.toBe(Level.Directive);
+
+    const candidates = extractMemoryCandidates(result);
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.some((c) => c.includes("應該"))).toBe(true);
   });
 
   it("flags review candidates for corrective user feedback that is not promoted to memory yet", () => {
