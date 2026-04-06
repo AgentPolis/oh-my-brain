@@ -310,6 +310,48 @@ describe("runCandidatesCli", () => {
     expect(stderr).toContain("No pending candidate matches");
   });
 
+  it("retire moves a matching directive to the archive section", () => {
+    // Seed MEMORY.md via the approval path first, then retire the entry.
+    seed(["always use TypeScript strict mode"]);
+    const store = loadCandidateStore(tmpDir);
+    const [record] = Object.values(store.candidates);
+    runCandidatesCli(
+      ["node", "cli", "approve", record.id.slice(0, 6)],
+      tmpDir
+    );
+
+    // Reset captured stdout for the retire command.
+    stdout = "";
+    const code = runCandidatesCli(
+      ["node", "cli", "retire", "always use TypeScript"],
+      tmpDir
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain("Retired 1 directive");
+
+    const content = readFileSync(join(tmpDir, "MEMORY.md"), "utf8");
+    expect(content).toContain("## oh-my-brain archive");
+    const archiveIdx = content.indexOf("## oh-my-brain archive");
+    expect(content.slice(0, archiveIdx)).not.toContain(
+      "always use TypeScript strict mode"
+    );
+  });
+
+  it("retire with no match returns error", () => {
+    const code = runCandidatesCli(
+      ["node", "cli", "retire", "nonexistent directive"],
+      tmpDir
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("No active directive matched");
+  });
+
+  it("retire without text argument returns usage error", () => {
+    const code = runCandidatesCli(["node", "cli", "retire"], tmpDir);
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: squeeze-candidates retire");
+  });
+
   it("status prints counts", () => {
     seed(["a", "b", "c"]);
     const store = loadCandidateStore(tmpDir);

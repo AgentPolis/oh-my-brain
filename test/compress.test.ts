@@ -356,6 +356,64 @@ describe("writeDirectivesToMemory", () => {
     expect(content).toContain("never push to main");
   });
 
+  it("retireDirective moves a matching directive to the archive section", async () => {
+    const { retireDirective } = await import("../cli/compress-core.js");
+    const processed = [
+      makeProcessed(Level.Directive, "always use TypeScript strict mode"),
+      makeProcessed(Level.Directive, "never commit generated files"),
+    ];
+    writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+
+    const retired = retireDirective(memoryPath, "always use TypeScript");
+    expect(retired).toBe(1);
+
+    const content = readFileSync(memoryPath, "utf8");
+    expect(content).toContain("## oh-my-brain archive");
+    expect(content).toContain("never commit generated files");
+
+    // The active section should no longer contain the retired directive
+    // ahead of the archive heading.
+    const archiveIdx = content.indexOf("## oh-my-brain archive");
+    const activeSection = content.slice(0, archiveIdx);
+    expect(activeSection).not.toContain("always use TypeScript strict mode");
+
+    const archiveSection = content.slice(archiveIdx);
+    expect(archiveSection).toContain("always use TypeScript strict mode");
+  });
+
+  it("retireDirective allows re-adding a retired directive later", async () => {
+    const { retireDirective } = await import("../cli/compress-core.js");
+    const processed = [makeProcessed(Level.Directive, "always use Python 3.11")];
+    writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+
+    retireDirective(memoryPath, "always use Python 3.11");
+
+    // Re-add the same directive — should succeed because parseExistingDirectives
+    // skips archive content.
+    const count = writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+    expect(count).toBe(1);
+
+    const content = readFileSync(memoryPath, "utf8");
+    // Both the archive copy and the re-added active copy should exist.
+    const occurrences = content.match(/always use Python 3\.11/g) ?? [];
+    expect(occurrences.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retireDirective returns 0 when no directive matches", async () => {
+    const { retireDirective } = await import("../cli/compress-core.js");
+    const processed = [makeProcessed(Level.Directive, "always use TDD")];
+    writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+
+    const retired = retireDirective(memoryPath, "never pair program");
+    expect(retired).toBe(0);
+  });
+
+  it("retireDirective is a no-op when MEMORY.md does not exist", async () => {
+    const { retireDirective } = await import("../cli/compress-core.js");
+    const retired = retireDirective(memoryPath, "anything");
+    expect(retired).toBe(0);
+  });
+
   it("does not let a shorter directive block a longer superset directive (substring bug regression)", () => {
     // Regression: previously used `existing.includes(d)` which would treat
     // "always use TypeScript" as already-present once "always use TypeScript strict mode"

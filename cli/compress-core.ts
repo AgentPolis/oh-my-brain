@@ -290,6 +290,9 @@ export function extractMemoryCandidates(processed: ProcessedMessage[]): string[]
   return [...new Set(candidates)].slice(-3);
 }
 
+const ARCHIVE_HEADING =
+  "## oh-my-brain archive (superseded directives — do not use)";
+
 /**
  * Parse existing MEMORY.md content and return the set of directive bodies
  * already written by squeeze-claw / oh-my-brain. Bullet lines look like:
@@ -303,8 +306,24 @@ export function parseExistingDirectives(existing: string): Set<string> {
   const directives = new Set<string>();
   if (!existing) return directives;
 
+  let insideArchive = false;
   for (const rawLine of existing.split("\n")) {
     const line = rawLine.trimEnd();
+
+    // Skip the archive section: retired directives should not block re-adding
+    // the same directive later if the user changes their mind.
+    if (line.trim() === ARCHIVE_HEADING) {
+      insideArchive = true;
+      continue;
+    }
+    if (insideArchive) {
+      if (/^## /.test(line) && line.trim() !== ARCHIVE_HEADING) {
+        insideArchive = false;
+      } else {
+        continue;
+      }
+    }
+
     // Match bullets of the form "- [..anything..] body text"
     const match = line.match(/^-\s+\[[^\]]*\]\s+(.+)$/);
     if (match) {
@@ -350,6 +369,102 @@ export function appendDirectivesToMemory(
     );
     return performDirectiveWrite(cleaned, memoryPath, metadata);
   }
+}
+
+/**
+ * Retire a directive by moving it out of the active section and into the
+ * archive section at the bottom of MEMORY.md. The archive is clearly
+ * labelled so that bootstrap-read consumers (runtime engines) know to
+ * ignore it. This is the primary tool for preventing unbounded growth of
+ * stale rules: a user who pivots from "always use TypeScript" to Rust can
+ * retire the old directive instead of editing MEMORY.md by hand.
+ *
+ * Match strategy: we match on the bullet body text, case-insensitively,
+ * by substring. This is intentionally loose so the CLI can accept short
+ * prefixes like `squeeze-candidates retire "always use Type"`.
+ *
+ * Returns the number of directives that were retired. Zero means nothing
+ * matched. The operation runs under the MEMORY.md write lock.
+ */
+export function retireDirective(
+  memoryPath: string,
+  matchText: string
+): number {
+  const needle = matchText.trim().toLowerCase();
+  if (needle.length === 0) return 0;
+  if (!existsSync(memoryPath)) return 0;
+
+  try {
+    return withLock(memoryPath, () => performRetireDirective(memoryPath, needle));
+  } catch (err) {
+    process.stderr.write(
+      `[squeeze] warning: MEMORY.md lock unavailable (${(err as Error).message}). Retiring without lock.\n`
+    );
+    return performRetireDirective(memoryPath, needle);
+  }
+}
+
+function performRetireDirective(memoryPath: string, needle: string): number {
+  const existing = readFileSync(memoryPath, "utf8");
+  const lines = existing.split("\n");
+
+  const retained: string[] = [];
+  const retired: string[] = [];
+  let insideArchive = false;
+  const archiveExisting: string[] = [];
+
+  for (const line of lines) {
+    // Track when we enter/exit the archive section so we don't touch it.
+    if (line.trim() === ARCHIVE_HEADING) {
+      insideArchive = true;
+      archiveExisting.push(line);
+      continue;
+    }
+    if (insideArchive) {
+      // Any new top-level heading ends the archive section.
+      if (/^## /.test(line) && line.trim() !== ARCHIVE_HEADING) {
+        insideArchive = false;
+        retained.push(line);
+        continue;
+      }
+      archiveExisting.push(line);
+      continue;
+    }
+
+    // Outside archive: check whether this is a directive bullet line and,
+    // if so, whether its body matches the needle.
+    const match = line.match(/^-\s+\[[^\]]*\]\s+(.+)$/);
+    if (match) {
+      const body = match[1].trim().toLowerCase();
+      if (body.includes(needle)) {
+        retired.push(line);
+        continue;
+      }
+    }
+    retained.push(line);
+  }
+
+  if (retired.length === 0) return 0;
+
+  // Rebuild the file: retained active content, then the archive section
+  // (existing archive content + newly-retired bullets).
+  let rebuilt = retained.join("\n").trimEnd();
+  if (archiveExisting.length === 0) {
+    rebuilt += `\n\n${ARCHIVE_HEADING}\n`;
+  } else {
+    rebuilt += `\n\n${archiveExisting.join("\n").trim()}\n`;
+  }
+
+  const timestamp = new Date().toISOString().slice(0, 10);
+  rebuilt += `\n<!-- retired ${timestamp} -->\n`;
+  for (const line of retired) {
+    rebuilt += `${line}\n`;
+  }
+
+  const tmpPath = memoryPath + ".tmp";
+  writeFileSync(tmpPath, rebuilt);
+  renameSync(tmpPath, memoryPath);
+  return retired.length;
 }
 
 function performDirectiveWrite(

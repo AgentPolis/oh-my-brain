@@ -20,7 +20,7 @@
  */
 
 import { join } from "path";
-import { appendDirectivesToMemory } from "./compress-core.js";
+import { appendDirectivesToMemory, retireDirective } from "./compress-core.js";
 import {
   approveCandidate,
   CandidateRecord,
@@ -40,6 +40,8 @@ Usage:
   squeeze-candidates approve <id>        approve and write to MEMORY.md
   squeeze-candidates approve <id> --as "..."   approve with edited text
   squeeze-candidates reject <id>         mark as rejected (won't be re-flagged)
+  squeeze-candidates retire "<text>"     retire an existing MEMORY.md directive
+                                         (moves it to the archive section)
   squeeze-candidates status              show counts by status
   squeeze-candidates --help              this message
 
@@ -150,6 +152,24 @@ function cmdReject(projectRoot: string, idPrefix: string): number {
   return 0;
 }
 
+function cmdRetire(projectRoot: string, matchText: string): number {
+  const memoryPath = join(projectRoot, "MEMORY.md");
+  const retired = retireDirective(memoryPath, matchText);
+  if (retired === 0) {
+    process.stderr.write(
+      `No active directive matched "${matchText}". Check MEMORY.md for the exact text.\n`
+    );
+    return 1;
+  }
+  process.stdout.write(
+    `✓ Retired ${retired} directive${retired === 1 ? "" : "s"} matching "${matchText}"\n`
+  );
+  process.stdout.write(
+    `  Moved to the archive section of MEMORY.md. Bootstrap-read consumers will ignore them.\n`
+  );
+  return 0;
+}
+
 function cmdStatus(projectRoot: string): number {
   const store = loadCandidateStore(projectRoot);
   const all = listCandidates(store);
@@ -205,6 +225,15 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
       return 1;
     }
     return cmdReject(projectRoot, id);
+  }
+
+  if (cmd === "retire") {
+    const text = args.slice(1).join(" ").trim();
+    if (!text) {
+      process.stderr.write('Usage: squeeze-candidates retire "<text prefix>"\n');
+      return 1;
+    }
+    return cmdRetire(projectRoot, text);
   }
 
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);
