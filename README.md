@@ -1,17 +1,21 @@
 # oh-my-brain 🧠
 
-**You shouldn't have to say "remember that". A real brain just remembers.**
+**Your personal world model that every AI agent grounds itself in.**
 
-oh-my-brain is the second brain for AI agents. It notices when you
-correct your agent, when you push back, when you keep doing the same
-thing — and asks if you want to remember. Other memory layers wait for
-explicit `always` and `never` commands. oh-my-brain watches what you
-actually do and meant.
+oh-my-brain is the personal version of what Palantir Foundry is for
+enterprises: a typed, living model of how you work — your rules, your
+preferences, your domain knowledge — that AI agents read from and write
+back to. Not a memory layer. Not a vector store. A **world model** built
+from the corrections you give in real conversations, with you as the
+final approver of what gets kept.
 
 It travels with you across every tool: Claude Code, Codex, Cursor,
 Windsurf, and anything that speaks MCP. Your rules, preferences, and
 corrections survive every context reset, every session boundary, every
-agent switch.
+agent switch — because they live in a portable `MEMORY.md` file plus a
+typed action log every agent reads from the same way.
+
+You shouldn't have to say "remember that". A real brain just remembers.
 
 > Formerly published as `squeeze-claw`. The compression still works.
 > The real value turned out to be the part that decides what's worth
@@ -64,12 +68,19 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 
 |                          | Other memory layers         | oh-my-brain                                        |
 | ------------------------ | --------------------------- | -------------------------------------------------- |
-| Storage model            | Store everything equally    | Classify by importance, protect what matters       |
+| Mental model             | Bag of strings              | Typed personal world model (a la Palantir ontology) |
+| Storage                  | Store everything equally    | Classify by importance, protect what matters       |
 | Soft signals             | Ignored unless you say "always" | Captured as Memory Candidates for review       |
+| Schema                   | Fixed (or none)             | **Self-growing** — system proposes new types as your patterns emerge |
 | Forgotten rules          | Possible                    | Impossible (L3 immortality)                        |
+| Mutations                | Untracked string edits      | Typed Actions with full provenance + undo         |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
 | Trust model              | Black box                   | Plain text `MEMORY.md` you can inspect, edit, commit |
 | Origin                   | Built from spec             | Built from real-use frustration                    |
+
+See [`docs/why-personal-world-model.md`](docs/why-personal-world-model.md)
+for the full positioning — why a personal Palantir matters in 2026, and
+how the self-growing ontology works.
 
 ## Installation
 
