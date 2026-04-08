@@ -1,6 +1,6 @@
 {
   "name": "oh-my-brain",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The second brain that follows you across every agent. Importance-aware memory for Claude Code, Codex, and MCP-compatible tools. (Formerly squeeze-claw.)",
   "type": "module",
   "main": "dist/index.js",
@@ -23,8 +23,8 @@
     "brain-mcp": "./dist/cli/mcp-server.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts && tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts --format esm --no-dts --out-dir dist/cli",
-    "build:cli": "tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts --format esm --no-dts --out-dir dist/cli",
+    "build": "tsup src/index.ts --format esm --dts && tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/is-main.ts --format esm --no-dts --out-dir dist/cli",
+    "build:cli": "tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/is-main.ts --format esm --no-dts --out-dir dist/cli",
     "dev": "tsup src/index.ts --format esm --dts --watch",
     "test": "vitest",
     "test:run": "vitest run",

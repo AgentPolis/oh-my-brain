@@ -546,7 +546,7 @@ export async function main() {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("oh-my-brain 0.2.0\n");
+    process.stdout.write("oh-my-brain 0.3.0\n");
     return;
   }
 

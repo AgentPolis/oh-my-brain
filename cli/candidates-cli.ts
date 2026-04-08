@@ -19,18 +19,21 @@
  * All commands operate on the current working directory's project root.
  */
 
-import { join } from "path";
-import { appendDirectivesToMemory, retireDirective } from "./compress-core.js";
 import {
-  approveCandidate,
   CandidateRecord,
   listCandidates,
   loadCandidateStore,
   pendingCount,
-  rejectCandidate,
   resolveCandidateId,
-  saveCandidateStore,
 } from "./candidates.js";
+import {
+  applyPromoteCandidate,
+  applyRejectCandidate,
+  applyRetireDirective,
+  loadActionLog,
+  undoLastAction,
+  whyDirective,
+} from "./actions.js";
 import { isDirectEntry } from "./is-main.js";
 
 const HELP_TEXT = `brain-candidates — Memory Candidates review queue
@@ -44,9 +47,16 @@ Usage:
   brain-candidates retire "<text>"     retire an existing MEMORY.md directive
                                          (moves it to the archive section)
   brain-candidates status              show counts by status
+  brain-candidates undo                reverse the most recent mutation
+  brain-candidates why "<text>"        trace how a directive came to exist
+  brain-candidates log [--limit N]     show recent actions from the log
   brain-candidates --help              this message
 
 Candidate IDs are content hashes; you can use any unique prefix.
+
+Every approve / reject / retire is a typed Action with full provenance.
+The action log lives at .squeeze/actions.jsonl. Use 'undo' to reverse
+the latest action and 'why' to trace the chain that produced a directive.
 `;
 
 function formatCandidate(c: CandidateRecord): string {
@@ -102,30 +112,26 @@ function cmdApprove(
     return 1;
   }
 
-  const result = approveCandidate(store, fullId, editedText);
-  if (!result) {
+  const action = applyPromoteCandidate(
+    { projectRoot, source: "cli" },
+    { candidateId: fullId, finalText: editedText }
+  );
+  if (!action) {
     process.stderr.write(
       `Candidate ${fullId} is not pending (already approved or rejected).\n`
     );
     return 1;
   }
 
-  const memoryPath = join(projectRoot, "MEMORY.md");
-  const written = appendDirectivesToMemory([result.finalText], memoryPath, {
-    source: result.record.source === "unknown" ? "claude" : result.record.source,
-    sessionId: result.record.sessionId,
-  });
-
-  saveCandidateStore(projectRoot, store);
-
-  if (written > 0) {
+  if (action.payload.written) {
     process.stdout.write(`✓ Approved ${fullId.slice(0, 8)} → MEMORY.md\n`);
-    process.stdout.write(`  ${result.finalText}\n`);
+    process.stdout.write(`  ${action.payload.finalText}\n`);
   } else {
     process.stdout.write(
       `✓ Approved ${fullId.slice(0, 8)} (already present in MEMORY.md, no duplicate written)\n`
     );
   }
+  process.stdout.write(`  action: ${action.id}\n`);
   return 0;
 }
 
@@ -139,35 +145,109 @@ function cmdReject(projectRoot: string, idPrefix: string): number {
     return 1;
   }
 
-  const record = rejectCandidate(store, fullId);
-  if (!record) {
+  const action = applyRejectCandidate({ projectRoot, source: "cli" }, fullId);
+  if (!action) {
     process.stderr.write(
       `Candidate ${fullId} is not pending (already approved or rejected).\n`
     );
     return 1;
   }
 
-  saveCandidateStore(projectRoot, store);
   process.stdout.write(`✗ Rejected ${fullId.slice(0, 8)}\n`);
-  process.stdout.write(`  ${record.text}\n`);
+  process.stdout.write(`  ${action.payload.text}\n`);
+  process.stdout.write(`  action: ${action.id}\n`);
   return 0;
 }
 
 function cmdRetire(projectRoot: string, matchText: string): number {
-  const memoryPath = join(projectRoot, "MEMORY.md");
-  const retired = retireDirective(memoryPath, matchText);
-  if (retired === 0) {
+  const action = applyRetireDirective(
+    { projectRoot, source: "cli" },
+    matchText
+  );
+  if (action.payload.retiredCount === 0) {
     process.stderr.write(
       `No active directive matched "${matchText}". Check MEMORY.md for the exact text.\n`
     );
     return 1;
   }
   process.stdout.write(
-    `✓ Retired ${retired} directive${retired === 1 ? "" : "s"} matching "${matchText}"\n`
+    `✓ Retired ${action.payload.retiredCount} directive${action.payload.retiredCount === 1 ? "" : "s"} matching "${matchText}"\n`
   );
   process.stdout.write(
     `  Moved to the archive section of MEMORY.md. Bootstrap-read consumers will ignore them.\n`
   );
+  process.stdout.write(`  action: ${action.id}\n`);
+  return 0;
+}
+
+function cmdUndo(projectRoot: string): number {
+  const result = undoLastAction({ projectRoot, source: "cli" });
+  if (!result) {
+    process.stdout.write("Nothing to undo.\n");
+    return 0;
+  }
+  process.stdout.write(
+    `↩ Undid ${result.undone.kind} (${result.undone.id})\n`
+  );
+  process.stdout.write(`  ${result.notes}\n`);
+  return 0;
+}
+
+function cmdWhy(projectRoot: string, query: string): number {
+  const result = whyDirective(projectRoot, query);
+  process.stdout.write(`${result.summary}\n`);
+  if (result.matches.length === 0) return 0;
+
+  process.stdout.write("\nAction chain:\n");
+  for (const action of result.matches) {
+    const ts = action.timestamp.replace("T", " ").slice(0, 19);
+    process.stdout.write(`  ${ts}  [${action.source}]  ${action.kind}  ${action.id}\n`);
+    switch (action.kind) {
+      case "RememberDirective":
+        process.stdout.write(`      → "${action.payload.finalText}"\n`);
+        break;
+      case "PromoteCandidate":
+        process.stdout.write(
+          `      candidate ${action.payload.candidateId.slice(0, 8)} → "${action.payload.finalText}"\n`
+        );
+        if (action.payload.originalText !== action.payload.finalText) {
+          process.stdout.write(
+            `      (edited from: "${action.payload.originalText}")\n`
+          );
+        }
+        break;
+      case "RejectCandidate":
+        process.stdout.write(
+          `      candidate ${action.payload.candidateId.slice(0, 8)} text: "${action.payload.text}"\n`
+        );
+        break;
+      case "RetireDirective":
+        process.stdout.write(
+          `      retired ${action.payload.retiredCount} matching "${action.payload.matchText}"\n`
+        );
+        break;
+      case "UndoAction":
+        process.stdout.write(`      ${action.payload.notes}\n`);
+        break;
+    }
+  }
+  return 0;
+}
+
+function cmdLog(projectRoot: string, limit: number): number {
+  const log = loadActionLog(projectRoot);
+  if (log.length === 0) {
+    process.stdout.write("No actions recorded yet.\n");
+    return 0;
+  }
+  const recent = log.slice(-limit).reverse();
+  process.stdout.write(
+    `${recent.length} most recent action(s) (of ${log.length} total):\n\n`
+  );
+  for (const action of recent) {
+    const ts = action.timestamp.replace("T", " ").slice(0, 19);
+    process.stdout.write(`  ${ts}  [${action.source}]  ${action.kind}  ${action.id}\n`);
+  }
   return 0;
 }
 
@@ -235,6 +315,28 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
       return 1;
     }
     return cmdRetire(projectRoot, text);
+  }
+
+  if (cmd === "undo") {
+    return cmdUndo(projectRoot);
+  }
+
+  if (cmd === "why") {
+    const text = args.slice(1).join(" ").trim();
+    if (!text) {
+      process.stderr.write('Usage: brain-candidates why "<directive text>"\n');
+      return 1;
+    }
+    return cmdWhy(projectRoot, text);
+  }
+
+  if (cmd === "log") {
+    const limitIdx = args.indexOf("--limit");
+    const limit =
+      limitIdx !== -1 && limitIdx < args.length - 1
+        ? Math.max(1, Number(args[limitIdx + 1]) || 10)
+        : 10;
+    return cmdLog(projectRoot, limit);
   }
 
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);

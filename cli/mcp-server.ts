@@ -36,21 +36,27 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { appendDirectivesToMemory, retireDirective } from "./compress-core.js";
 import {
-  approveCandidate,
   ingestCandidates,
   listCandidates,
   loadCandidateStore,
   pendingCount,
-  rejectCandidate,
   resolveCandidateId,
   saveCandidateStore,
 } from "./candidates.js";
+import {
+  applyPromoteCandidate,
+  applyRejectCandidate,
+  applyRememberDirective,
+  applyRetireDirective,
+  loadActionLog,
+  undoLastAction,
+  whyDirective,
+} from "./actions.js";
 import { isDirectEntry } from "./is-main.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.2.0";
+const SERVER_VERSION = "0.3.0";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -167,6 +173,37 @@ const TOOLS: ToolDefinition[] = [
       properties: {},
     },
   },
+  {
+    name: "brain_undo_last",
+    description:
+      "Reverse the most recent mutation (RememberDirective, PromoteCandidate, " +
+      "RejectCandidate, or RetireDirective). The undo itself is logged so the " +
+      "history is fully traceable. Returns the kind of action undone and a " +
+      "human-readable summary of what was reverted.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "brain_why",
+    description:
+      "Trace how a directive came to exist by searching the action log. " +
+      "Returns the chain of actions that mention the given directive text " +
+      "in chronological order. Use this when you need to answer 'why do you " +
+      "remember this about me' — every memory has an audit trail.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description:
+            "Substring of the directive text to search for in the action log.",
+        },
+      },
+      required: ["text"],
+    },
+  },
 ];
 
 // ── JSON-RPC envelope types ──────────────────────────────────────
@@ -206,24 +243,21 @@ function handleBrainRemember(args: Record<string, unknown>): { content: ToolCont
   if (!text) {
     return textResult("error: text is required and must be non-empty");
   }
-  const source = (typeof args.source === "string" ? args.source : "unknown") as
-    | "claude"
-    | "codex"
-    | "unknown";
+  const source = typeof args.source === "string" ? args.source : "mcp";
   const sessionId = typeof args.session_id === "string" ? args.session_id : undefined;
 
-  const written = appendDirectivesToMemory([text], memoryPath(), {
-    source: source === "unknown" ? "claude" : (source as "claude" | "codex"),
-    sessionId,
-  });
+  const action = applyRememberDirective(
+    { projectRoot: projectRoot(), source, sessionId },
+    { text }
+  );
 
-  if (written > 0) {
+  if (action.payload.written) {
     return textResult(
-      `remembered: "${text}" → MEMORY.md at ${memoryPath()}`
+      `remembered: "${text}" → MEMORY.md (action ${action.id})`
     );
   }
   return textResult(
-    `already remembered: "${text}" is already present in MEMORY.md`
+    `already remembered: "${text}" is already present in MEMORY.md (action ${action.id} logged anyway for traceability)`
   );
 }
 
@@ -309,20 +343,15 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
     if (!idPrefix) return textResult("error: id is required for action=approve");
     const fullId = resolveCandidateId(store, idPrefix);
     if (!fullId) return textResult(`error: no pending candidate matches "${idPrefix}"`);
-    const result = approveCandidate(store, fullId, finalText);
-    if (!result) {
+    const promoted = applyPromoteCandidate(
+      { projectRoot: root, source: "mcp" },
+      { candidateId: fullId, finalText }
+    );
+    if (!promoted) {
       return textResult(`error: candidate ${fullId} is not pending`);
     }
-    appendDirectivesToMemory([result.finalText], memoryPath(), {
-      source:
-        result.record.source === "unknown"
-          ? "claude"
-          : (result.record.source as "claude" | "codex"),
-      sessionId: result.record.sessionId,
-    });
-    saveCandidateStore(root, store);
     return textResult(
-      `approved ${fullId.slice(0, 8)}: "${result.finalText}" → MEMORY.md`
+      `approved ${fullId.slice(0, 8)}: "${promoted.payload.finalText}" → MEMORY.md (action ${promoted.id})`
     );
   }
 
@@ -331,10 +360,14 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
     if (!idPrefix) return textResult("error: id is required for action=reject");
     const fullId = resolveCandidateId(store, idPrefix);
     if (!fullId) return textResult(`error: no pending candidate matches "${idPrefix}"`);
-    const record = rejectCandidate(store, fullId);
-    if (!record) return textResult(`error: candidate ${fullId} is not pending`);
-    saveCandidateStore(root, store);
-    return textResult(`rejected ${fullId.slice(0, 8)}: "${record.text}"`);
+    const rejected = applyRejectCandidate(
+      { projectRoot: root, source: "mcp" },
+      fullId
+    );
+    if (!rejected) return textResult(`error: candidate ${fullId} is not pending`);
+    return textResult(
+      `rejected ${fullId.slice(0, 8)}: "${rejected.payload.text}" (action ${rejected.id})`
+    );
   }
 
   return textResult(`error: unknown action "${action}" (expected list|add|approve|reject)`);
@@ -343,13 +376,61 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
 function handleBrainRetire(args: Record<string, unknown>): { content: ToolContent[] } {
   const match = typeof args.match === "string" ? args.match.trim() : "";
   if (!match) return textResult("error: match is required");
-  const retired = retireDirective(memoryPath(), match);
-  if (retired === 0) {
+  const action = applyRetireDirective({ projectRoot: projectRoot(), source: "mcp" }, match);
+  if (action.payload.retiredCount === 0) {
     return textResult(`no active directive matched "${match}"`);
   }
   return textResult(
-    `retired ${retired} directive(s) matching "${match}" — moved to archive section`
+    `retired ${action.payload.retiredCount} directive(s) matching "${match}" — moved to archive section (action ${action.id})`
   );
+}
+
+function handleBrainUndoLast(): { content: ToolContent[] } {
+  const result = undoLastAction({ projectRoot: projectRoot(), source: "mcp" });
+  if (!result) {
+    return textResult("nothing to undo — action log is empty or all actions are already reversed");
+  }
+  return textResult(
+    `undid ${result.undone.kind} (${result.undone.id}): ${result.notes}`
+  );
+}
+
+function handleBrainWhy(args: Record<string, unknown>): { content: ToolContent[] } {
+  const text = typeof args.text === "string" ? args.text.trim() : "";
+  if (!text) return textResult("error: text is required");
+  const result = whyDirective(projectRoot(), text);
+  if (result.matches.length === 0) {
+    return textResult(result.summary);
+  }
+  const lines = [result.summary, "", "Action chain:"];
+  for (const action of result.matches) {
+    const ts = action.timestamp.replace("T", " ").slice(0, 19);
+    lines.push(`  ${ts}  [${action.source}]  ${action.kind}  ${action.id}`);
+    switch (action.kind) {
+      case "RememberDirective":
+        lines.push(`      → "${action.payload.finalText}"`);
+        break;
+      case "PromoteCandidate":
+        lines.push(
+          `      candidate ${action.payload.candidateId.slice(0, 8)} → "${action.payload.finalText}"`
+        );
+        break;
+      case "RejectCandidate":
+        lines.push(
+          `      candidate ${action.payload.candidateId.slice(0, 8)}: "${action.payload.text}"`
+        );
+        break;
+      case "RetireDirective":
+        lines.push(
+          `      retired ${action.payload.retiredCount} matching "${action.payload.matchText}"`
+        );
+        break;
+      case "UndoAction":
+        lines.push(`      ${action.payload.notes}`);
+        break;
+    }
+  }
+  return textResult(lines.join("\n"));
 }
 
 function handleBrainStatus(): { content: ToolContent[] } {
@@ -359,6 +440,11 @@ function handleBrainStatus(): { content: ToolContent[] } {
   const total = listCandidates(store).length;
   const mPath = memoryPath();
   const memoryExists = existsSync(mPath);
+  const actionLog = loadActionLog(root);
+  const actionsByKind = new Map<string, number>();
+  for (const a of actionLog) {
+    actionsByKind.set(a.kind, (actionsByKind.get(a.kind) ?? 0) + 1);
+  }
 
   const parts = [
     `project: ${root}`,
@@ -366,7 +452,14 @@ function handleBrainStatus(): { content: ToolContent[] } {
     `memory_exists: ${memoryExists}`,
     `candidates_pending: ${pending}`,
     `candidates_total: ${total}`,
+    `actions_total: ${actionLog.length}`,
   ];
+  if (actionLog.length > 0) {
+    const breakdown = Array.from(actionsByKind.entries())
+      .map(([k, c]) => `${k}=${c}`)
+      .join(", ");
+    parts.push(`actions_by_kind: ${breakdown}`);
+  }
   return textResult(parts.join("\n"));
 }
 
@@ -382,6 +475,10 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
       return handleBrainRetire(args);
     case "brain_status":
       return handleBrainStatus();
+    case "brain_undo_last":
+      return handleBrainUndoLast();
+    case "brain_why":
+      return handleBrainWhy(args);
     default:
       return textResult(`error: unknown tool "${name}"`);
   }
