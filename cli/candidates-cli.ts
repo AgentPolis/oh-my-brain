@@ -27,9 +27,11 @@ import {
   resolveCandidateId,
 } from "./candidates.js";
 import {
+  applyApproveLink,
   applyApproveType,
   applyPromoteCandidate,
   applyRejectCandidate,
+  applyRejectLink,
   applyRejectType,
   applyRetireDirective,
   loadActionLog,
@@ -43,6 +45,15 @@ import {
   resolveTypeCandidateId,
   type TypeCandidateRecord,
 } from "./types-store.js";
+import {
+  LINK_KINDS,
+  type LinkCandidateRecord,
+  type LinkKind,
+  listLinkCandidates,
+  loadLinkCandidates,
+  loadLinks,
+  resolveLinkCandidateId,
+} from "./links-store.js";
 import { isDirectEntry } from "./is-main.js";
 
 const HELP_TEXT = `brain-candidates — Memory Candidates review queue
@@ -61,6 +72,13 @@ Type review (self-growing ontology):
   brain-candidates approve-type <id>   approve a new Directive Type
   brain-candidates approve-type <id> --as "TypeName"
   brain-candidates reject-type <id>    reject a proposed type
+
+Link review (typed relations between directives):
+  brain-candidates links               list current Directive Links
+  brain-candidates list-links [--all]  list pending (or all) link candidates
+  brain-candidates approve-link <id>   approve a typed relation
+  brain-candidates approve-link <id> --as supersedes|refines|contradicts|scopedTo
+  brain-candidates reject-link <id>    reject a proposed link
 
 History:
   brain-candidates status              show counts by status
@@ -388,6 +406,131 @@ function cmdRejectType(projectRoot: string, idPrefix: string): number {
   return 0;
 }
 
+// ── Link management commands ─────────────────────────────────────
+
+function formatLinkCandidate(c: LinkCandidateRecord): string {
+  const shortId = c.id.slice(0, 10);
+  const statusTag = c.status === "pending" ? "" : ` [${c.status.toUpperCase()}]`;
+  const sim = (c.similarity * 100).toFixed(0);
+  const truncate = (s: string): string =>
+    s.length > 80 ? s.slice(0, 77) + "..." : s;
+  return [
+    `  ${shortId}${statusTag}  ${c.proposedKind}  (sim: ${sim}%)`,
+    `    from: ${truncate(c.fromDirective)}`,
+    `    to:   ${truncate(c.toDirective)}`,
+    `    why:  ${c.rationale}`,
+  ].join("\n");
+}
+
+function cmdShowLinks(projectRoot: string): number {
+  const links = loadLinks(projectRoot);
+  if (links.length === 0) {
+    process.stdout.write("No directive links defined.\n");
+    return 0;
+  }
+  process.stdout.write(`${links.length} Directive Link(s):\n\n`);
+  for (const link of links) {
+    const truncate = (s: string): string =>
+      s.length > 60 ? s.slice(0, 57) + "..." : s;
+    process.stdout.write(`  ${link.kind}  [${link.origin}]\n`);
+    process.stdout.write(`    from: ${truncate(link.fromDirective)}\n`);
+    process.stdout.write(`    to:   ${truncate(link.toDirective)}\n\n`);
+  }
+  return 0;
+}
+
+function cmdListLinkCandidates(projectRoot: string, showAll: boolean): number {
+  const store = loadLinkCandidates(projectRoot);
+  const records = showAll
+    ? listLinkCandidates(store)
+    : listLinkCandidates(store, { status: "pending" });
+
+  if (records.length === 0) {
+    process.stdout.write(
+      showAll
+        ? "No link candidates found.\n"
+        : "No pending link candidates. Nothing to review.\n"
+    );
+    return 0;
+  }
+
+  process.stdout.write(
+    `${records.length} ${showAll ? "total" : "pending"} link candidate(s):\n\n`
+  );
+  for (const record of records) {
+    process.stdout.write(`${formatLinkCandidate(record)}\n\n`);
+  }
+  process.stdout.write(
+    "Review commands: brain-candidates approve-link <id> [--as supersedes|refines|contradicts|scopedTo] | reject-link <id>\n"
+  );
+  return 0;
+}
+
+function cmdApproveLink(
+  projectRoot: string,
+  idPrefix: string,
+  finalKindRaw: string | undefined
+): number {
+  const store = loadLinkCandidates(projectRoot);
+  const fullId = resolveLinkCandidateId(store, idPrefix);
+  if (!fullId) {
+    process.stderr.write(
+      `No pending link candidate matches id "${idPrefix}". Run 'brain-candidates list-links' to see available IDs.\n`
+    );
+    return 1;
+  }
+
+  let finalKind: LinkKind | undefined;
+  if (finalKindRaw) {
+    if (!LINK_KINDS.includes(finalKindRaw as LinkKind)) {
+      process.stderr.write(
+        `Invalid link kind "${finalKindRaw}". Must be one of: ${LINK_KINDS.join(", ")}\n`
+      );
+      return 1;
+    }
+    finalKind = finalKindRaw as LinkKind;
+  }
+
+  const action = applyApproveLink(
+    { projectRoot, source: "cli" },
+    { linkCandidateId: fullId, finalKind }
+  );
+  if (!action) {
+    process.stderr.write(
+      `Link candidate ${fullId} is not pending (already approved or rejected).\n`
+    );
+    return 1;
+  }
+
+  process.stdout.write(`✓ Approved link ${fullId.slice(0, 10)}\n`);
+  process.stdout.write(`  → ${action.payload.finalKind}\n`);
+  process.stdout.write(`  action: ${action.id}\n`);
+  return 0;
+}
+
+function cmdRejectLink(projectRoot: string, idPrefix: string): number {
+  const store = loadLinkCandidates(projectRoot);
+  const fullId = resolveLinkCandidateId(store, idPrefix);
+  if (!fullId) {
+    process.stderr.write(
+      `No pending link candidate matches id "${idPrefix}". Run 'brain-candidates list-links' to see available IDs.\n`
+    );
+    return 1;
+  }
+
+  const action = applyRejectLink({ projectRoot, source: "cli" }, fullId);
+  if (!action) {
+    process.stderr.write(
+      `Link candidate ${fullId} is not pending (already approved or rejected).\n`
+    );
+    return 1;
+  }
+
+  process.stdout.write(`✗ Rejected link ${fullId.slice(0, 10)}\n`);
+  process.stdout.write(`  action: ${action.id}\n`);
+  return 0;
+}
+
 function cmdStatus(projectRoot: string): number {
   const store = loadCandidateStore(projectRoot);
   const all = listCandidates(store);
@@ -502,6 +645,34 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
       return 1;
     }
     return cmdRejectType(projectRoot, id);
+  }
+
+  if (cmd === "links") {
+    return cmdShowLinks(projectRoot);
+  }
+
+  if (cmd === "list-links") {
+    return cmdListLinkCandidates(projectRoot, args.includes("--all"));
+  }
+
+  if (cmd === "approve-link") {
+    const id = args[1];
+    if (!id) {
+      process.stderr.write(
+        "Usage: brain-candidates approve-link <id> [--as supersedes|refines|contradicts|scopedTo]\n"
+      );
+      return 1;
+    }
+    return cmdApproveLink(projectRoot, id, parseEditFlag(args));
+  }
+
+  if (cmd === "reject-link") {
+    const id = args[1];
+    if (!id) {
+      process.stderr.write("Usage: brain-candidates reject-link <id>\n");
+      return 1;
+    }
+    return cmdRejectLink(projectRoot, id);
   }
 
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);

@@ -45,9 +45,11 @@ import {
   saveCandidateStore,
 } from "./candidates.js";
 import {
+  applyApproveLink,
   applyApproveType,
   applyPromoteCandidate,
   applyRejectCandidate,
+  applyRejectLink,
   applyRejectType,
   applyRememberDirective,
   applyRetireDirective,
@@ -61,8 +63,15 @@ import {
   loadAllTypes,
   loadTypeCandidates,
   resolveTypeCandidateId,
-  scanForTypeCandidates,
 } from "./types-store.js";
+import {
+  LINK_KINDS,
+  type LinkKind,
+  listLinkCandidates,
+  loadLinkCandidates,
+  loadLinks,
+  resolveLinkCandidateId,
+} from "./links-store.js";
 import { isDirectEntry } from "./is-main.js";
 
 const SERVER_NAME = "oh-my-brain";
@@ -244,6 +253,38 @@ const TOOLS: ToolDefinition[] = [
           type: "string",
           description:
             "Optional edited name when approving (otherwise the proposed name is used).",
+        },
+      },
+    },
+  },
+  {
+    name: "brain_links",
+    description:
+      "Manage Directive Links — typed relations between directives. " +
+      "Kinds are 'supersedes' (A replaces B), 'refines' (A adds detail to B), " +
+      "'contradicts' (A and B are in tension), 'scopedTo' (A only applies " +
+      "in B's context). With action=list, returns all current links. With " +
+      "action=list_candidates, returns auto-proposed link candidates from " +
+      "the most recent ontology scan. With action=approve / reject, curates " +
+      "a pending link candidate.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "list_candidates", "approve", "reject"],
+          description: "What to do. Default: list.",
+        },
+        id: {
+          type: "string",
+          description:
+            "Link candidate ID or prefix (required for action=approve or reject).",
+        },
+        final_kind: {
+          type: "string",
+          enum: ["supersedes", "refines", "contradicts", "scopedTo"],
+          description:
+            "Optional override of the proposed link kind when approving.",
         },
       },
     },
@@ -510,6 +551,80 @@ function handleBrainTypes(args: Record<string, unknown>): { content: ToolContent
   );
 }
 
+function handleBrainLinks(args: Record<string, unknown>): { content: ToolContent[] } {
+  const action = typeof args.action === "string" ? args.action : "list";
+  const root = projectRoot();
+
+  if (action === "list") {
+    const links = loadLinks(root);
+    if (links.length === 0) return textResult("no directive links defined");
+    const lines = links.map((l) => {
+      const truncate = (s: string): string =>
+        s.length > 60 ? s.slice(0, 57) + "..." : s;
+      return `${l.kind}  from "${truncate(l.fromDirective)}"  to "${truncate(l.toDirective)}"`;
+    });
+    return textResult(`${links.length} Directive Link(s):\n\n${lines.join("\n")}`);
+  }
+
+  if (action === "list_candidates") {
+    const store = loadLinkCandidates(root);
+    const pending = listLinkCandidates(store, { status: "pending" });
+    if (pending.length === 0) return textResult("no pending link candidates");
+    const lines = pending.map((c) => {
+      const truncate = (s: string): string =>
+        s.length > 60 ? s.slice(0, 57) + "..." : s;
+      return `${c.id.slice(0, 10)}  ${c.proposedKind}  (sim ${(c.similarity * 100).toFixed(0)}%)\n    from "${truncate(c.fromDirective)}"\n    to   "${truncate(c.toDirective)}"\n    why  ${c.rationale}`;
+    });
+    return textResult(
+      `${pending.length} pending link candidate(s):\n\n${lines.join("\n\n")}`
+    );
+  }
+
+  if (action === "approve") {
+    const idPrefix = typeof args.id === "string" ? args.id : "";
+    if (!idPrefix) return textResult("error: id is required for action=approve");
+    const store = loadLinkCandidates(root);
+    const fullId = resolveLinkCandidateId(store, idPrefix);
+    if (!fullId) return textResult(`error: no pending link candidate matches "${idPrefix}"`);
+
+    let finalKind: LinkKind | undefined;
+    if (typeof args.final_kind === "string") {
+      if (!LINK_KINDS.includes(args.final_kind as LinkKind)) {
+        return textResult(
+          `error: invalid final_kind "${args.final_kind}". Must be one of: ${LINK_KINDS.join(", ")}`
+        );
+      }
+      finalKind = args.final_kind as LinkKind;
+    }
+
+    const result = applyApproveLink(
+      { projectRoot: root, source: "mcp" },
+      { linkCandidateId: fullId, finalKind }
+    );
+    if (!result) return textResult(`error: link candidate ${fullId} is not pending`);
+    return textResult(
+      `approved link ${fullId.slice(0, 10)}: ${result.payload.finalKind} (action ${result.id})`
+    );
+  }
+
+  if (action === "reject") {
+    const idPrefix = typeof args.id === "string" ? args.id : "";
+    if (!idPrefix) return textResult("error: id is required for action=reject");
+    const store = loadLinkCandidates(root);
+    const fullId = resolveLinkCandidateId(store, idPrefix);
+    if (!fullId) return textResult(`error: no pending link candidate matches "${idPrefix}"`);
+    const result = applyRejectLink({ projectRoot: root, source: "mcp" }, fullId);
+    if (!result) return textResult(`error: link candidate ${fullId} is not pending`);
+    return textResult(
+      `rejected link ${fullId.slice(0, 10)}: ${result.payload.proposedKind} (action ${result.id})`
+    );
+  }
+
+  return textResult(
+    `error: unknown action "${action}" (expected list|list_candidates|approve|reject)`
+  );
+}
+
 function handleBrainWhy(args: Record<string, unknown>): { content: ToolContent[] } {
   const text = typeof args.text === "string" ? args.text.trim() : "";
   if (!text) return textResult("error: text is required");
@@ -596,6 +711,8 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
       return handleBrainWhy(args);
     case "brain_types":
       return handleBrainTypes(args);
+    case "brain_links":
+      return handleBrainLinks(args);
     default:
       return textResult(`error: unknown tool "${name}"`);
   }

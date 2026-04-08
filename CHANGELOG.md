@@ -1,5 +1,165 @@
 # Changelog
 
+## [0.3.0] - 2026-04-08
+
+**Repositioning to a personal world model + the L1/L2/L3 self-growing
+ontology that makes it real.** This release reframes oh-my-brain as
+the personal version of what Palantir Foundry is for enterprises (a
+typed, queryable, mutable model that AI agents ground themselves in)
+and ships the three load-bearing primitives that turn the description
+into a working product:
+
+1. **Typed Actions** with full provenance + undo
+2. **Self-growing Directive Types** (L2 ontology growth)
+3. **Self-growing Directive Links** (L3 ontology growth — typed
+   relations between directives)
+
+Inspired by Palantir Foundry's Object/Action/Link model and Jack
+Dorsey's "[From Hierarchy to Intelligence](https://block.xyz/inside/from-hierarchy-to-intelligence)"
+essay (March 2026, used to back Block's 4,000-person restructuring).
+Both made "world model" the new operational vocabulary; this release
+makes it real for individuals.
+
+See [`docs/why-personal-world-model.md`](docs/why-personal-world-model.md)
+for the full positioning essay.
+
+### Added
+
+#### Phase 4a/4b — Repositioning
+
+- **README rewrite** with new hero ("Your personal world model that
+  every AI agent grounds itself in") and new comparison table that
+  highlights what's actually load-bearing: typed mental model, soft
+  signal capture, self-growing schema, typed mutations with provenance.
+- **`docs/why-personal-world-model.md`** — the launch essay. Three
+  things that happened in early 2026 (Palantir ontology, Dorsey
+  hierarchy essay, world model wave). Mapping from Palantir primitives
+  to oh-my-brain primitives. Self-growing ontology on three levels.
+  Where this lands vs Memorix/Mem0/Notion AI/Claude memory.
+
+#### Phase 4c — Typed Actions + provenance + undo
+
+- **`cli/actions.ts`** (~700 lines) — the load-bearing primitive that
+  turns oh-my-brain from a "memory layer" into an ontology in the
+  Palantir sense. Every mutation to MEMORY.md now goes through a typed
+  Action with full provenance and is logged at `.squeeze/actions.jsonl`.
+- **Action kinds** (v0.3 baseline): RememberDirective, PromoteCandidate,
+  RejectCandidate, RetireDirective, plus UndoAction (which logs reversals
+  so future undos skip already-undone actions).
+- **`undoLastAction(ctx)`** — walks the action log backward to find
+  the latest non-undone mutation, applies its inverse, and logs the
+  undo itself for traceability.
+- **`whyDirective(projectRoot, text)`** — substring search across the
+  action log; returns the chain of actions that produced (or affected)
+  a given directive in chronological order. The "why do you remember
+  this about me" query is now first-class.
+- **CLI**: `brain-candidates undo`, `brain-candidates why "<text>"`,
+  `brain-candidates log [--limit N]`. All of approve/reject/retire
+  now route through Action constructors so they're logged automatically
+  with no behavioral change for users.
+- **MCP**: two new tools — `brain_undo_last` and `brain_why`. Bumped
+  protocol server version to 0.3.0.
+- **Tests**: 20 new in `test/actions.test.ts` covering every action
+  kind, the undo flow, the "skip already-undone" guarantee, the
+  why-directive search, and corrupted-log tolerance.
+
+#### Phase 4d — Self-growing Directive Types (L2 ontology growth)
+
+- **`cli/types-store.ts`** (~430 lines) — typed memory categories with
+  a self-growth mechanism. The user noted in the v0.3 design discussion
+  that they had previously defined "memory by topic domain" — this is
+  exactly that idea, with a self-growth path so the schema is never
+  frozen.
+- **Five built-in seed types**: `CodingPreference`, `ToolBan`,
+  `CommunicationStyle`, `ProjectFact`, `PersonContact`. Each has its
+  own regex pattern set for classification.
+- **`detectEmergingClusters(directives, threshold=3)`** — bag-of-words
+  cluster detection over uncategorized directives. English + Chinese
+  stopword filtering. Requires 3+ directives sharing a non-trivial
+  keyword before proposing a new type.
+- **`scanForTypeCandidates(projectRoot, directiveBodies)`** — the L2
+  self-growth tick called from the compress hook AND from every
+  directive write via `runOntologyScan` in actions.ts (so MCP-driven
+  writes from Cursor / Windsurf get the same evolution as Claude Code
+  hook writes).
+- **Action kinds**: ApproveType, RejectType. Both reversible via undo
+  (Approve restores the prior user-types file AND brings the candidate
+  back to pending).
+- **CLI**: `brain-candidates types`, `list-types`, `approve-type`,
+  `reject-type`. New types append to `.squeeze/types.json` and start
+  classifying directives immediately.
+- **MCP**: new `brain_types` tool with sub-actions list / classify /
+  list_candidates / approve / reject.
+- **Tests**: 19 new in `test/types-store.test.ts` covering classifier
+  hits for all five built-ins, cluster detection threshold + stopword
+  filtering, ingest dedup, end-to-end scan, action wrappers, and
+  approve+undo restoring both files.
+
+#### Phase 4e — Self-growing Directive Links (L3 ontology growth)
+
+- **`cli/links-store.ts`** (~470 lines) — typed relations between
+  directives, with a self-growth mechanism. Real personal rules form
+  a graph: one directive supersedes another, refines it, contradicts
+  it, or scopes to a project context.
+- **Four link kinds**: `supersedes` (A replaces B), `refines` (A adds
+  detail to B), `contradicts` (A and B in tension; agent should flag
+  on read), `scopedTo` (A only applies inside B's context).
+- **`detectLinkProposals(directives, similarityThreshold=0.25)`** —
+  pairwise heuristic over the directive list. Combines Jaccard
+  token similarity with negation/scope marker detection. Order-aware
+  (newer directives can supersede older ones, never vice versa).
+- **`scanForLinkCandidates(projectRoot, directiveBodies)`** — the L3
+  self-growth tick called from the compress hook AND from action
+  writes.
+- **Action kinds**: ApproveLink, RejectLink. Both reversible via undo
+  (Approve restores the prior links file AND brings the candidate
+  back to pending).
+- **CLI**: `brain-candidates links`, `list-links`, `approve-link`,
+  `reject-link`. Approving via `--as supersedes|refines|contradicts|scopedTo`
+  overrides the proposed kind.
+- **MCP**: new `brain_links` tool with sub-actions list /
+  list_candidates / approve / reject.
+- **Tests**: 16 new in `test/links-store.test.ts` covering each
+  link kind detection, threshold suppression, ingest dedup, end-to-end
+  scan, action wrappers, and approve+undo restoring both files.
+
+### Changed
+
+- **`brain_status`** now reports `actions_total` and an
+  `actions_by_kind` breakdown so the action log is observable from
+  any agent.
+- **MCP server version** bumped from 0.2.0 → 0.3.0.
+- **Hook integration** (`cli/compress-core.ts`) — every Claude Code
+  Stop run now scans for both type candidates AND link candidates
+  in addition to directive candidates. The same scan runs after every
+  MCP-driven directive write via `runOntologyScan` in actions.ts.
+- **Scope marker list** in links-store tightened: removed "for" and
+  "when" because they were producing false-positive `scopedTo`
+  proposals on common directive phrasings. Markers must now be
+  longer phrases like "in typescript projects", "only when",
+  "scoped to", "in the context of".
+
+### Tests
+
+- **307 / 307 passing** across 26 test files (up from 252 / 252 in v0.2).
+- New test files: `test/actions.test.ts`, `test/types-store.test.ts`,
+  `test/links-store.test.ts`. 55 new tests total.
+- All Phase 4 work was test-first or test-coupled — every action kind,
+  every candidate flow, every undo path, every false-positive guard
+  has explicit coverage.
+
+### Files added in Phase 4
+
+```
+cli/actions.ts              700 lines
+cli/types-store.ts          430 lines
+cli/links-store.ts          470 lines
+docs/why-personal-world-model.md
+test/actions.test.ts         20 tests
+test/types-store.test.ts     19 tests
+test/links-store.test.ts     16 tests
+```
+
 ## [0.2.0] - 2026-04-06
 
 **Project renamed: `squeeze-claw` → `oh-my-brain`.** The compression

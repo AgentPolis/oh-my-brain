@@ -19,6 +19,7 @@ import {
   saveCandidateStore,
 } from "./candidates.js";
 import { scanForTypeCandidates } from "./types-store.js";
+import { scanForLinkCandidates } from "./links-store.js";
 import { withLock } from "./lockfile.js";
 
 const STALE_TAIL_COUNT = 20;
@@ -634,23 +635,34 @@ export async function main() {
     process.stderr.write(`[brain] provenance logged → ${projectLogPath}\n`);
   }
 
-  // L2 self-growth tick: scan all current MEMORY.md directives for emerging
-  // type clusters and propose new Directive Types if any are found.
-  // Cheap (regex-based, no LLM) so we can run it every hook invocation.
+  // L2 + L3 self-growth tick: scan all current MEMORY.md directives for
+  // emerging type clusters AND typed link relations. Both run cheap regex
+  // heuristics with no LLM call so they're safe to run every hook
+  // invocation. Either failure is non-fatal.
   try {
     const existingMemory = existsSync(memoryPath)
       ? readFileSync(memoryPath, "utf8")
       : "";
     const directiveBodies = Array.from(parseExistingDirectives(existingMemory));
+
+    // L2: type candidates
     const newTypeCandidates = scanForTypeCandidates(cwd, directiveBodies);
     if (newTypeCandidates.length > 0) {
       process.stderr.write(
         `[brain] ${newTypeCandidates.length} new directive type${newTypeCandidates.length === 1 ? "" : "s"} proposed. Run 'brain-candidates list-types' to review.\n`
       );
     }
+
+    // L3: link candidates
+    const newLinkCandidates = scanForLinkCandidates(cwd, directiveBodies);
+    if (newLinkCandidates.length > 0) {
+      process.stderr.write(
+        `[brain] ${newLinkCandidates.length} new directive link${newLinkCandidates.length === 1 ? "" : "s"} proposed. Run 'brain-candidates list-links' to review.\n`
+      );
+    }
   } catch (err) {
     process.stderr.write(
-      `[brain] type scan skipped: ${(err as Error).message}\n`
+      `[brain] ontology scan skipped: ${(err as Error).message}\n`
     );
   }
 }

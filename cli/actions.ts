@@ -72,8 +72,21 @@ import {
   rejectTypeCandidate,
   saveTypeCandidates,
   saveUserTypes,
+  scanForTypeCandidates,
   type DirectiveTypeSchema,
 } from "./types-store.js";
+import {
+  approveLinkCandidate,
+  loadLinkCandidates,
+  loadLinks,
+  rejectLinkCandidate,
+  saveLinkCandidates,
+  saveLinks,
+  scanForLinkCandidates,
+  type DirectiveLink,
+  type LinkKind,
+} from "./links-store.js";
+import { parseExistingDirectives } from "./compress-core.js";
 
 // ── Action types ─────────────────────────────────────────────────
 
@@ -84,6 +97,8 @@ export type ActionKind =
   | "RetireDirective"
   | "ApproveType"
   | "RejectType"
+  | "ApproveLink"
+  | "RejectLink"
   | "UndoAction";
 
 export interface ActionBase {
@@ -155,6 +170,27 @@ export interface RejectTypeAction extends ActionBase {
   };
 }
 
+export interface ApproveLinkAction extends ActionBase {
+  kind: "ApproveLink";
+  payload: {
+    linkCandidateId: string;
+    fromDirective: string;
+    toDirective: string;
+    proposedKind: LinkKind;
+    finalKind: LinkKind;
+    /** Snapshot of the links file before this action ran. Used for undo. */
+    linksSnapshot: DirectiveLink[];
+  };
+}
+
+export interface RejectLinkAction extends ActionBase {
+  kind: "RejectLink";
+  payload: {
+    linkCandidateId: string;
+    proposedKind: LinkKind;
+  };
+}
+
 export interface UndoActionRecord extends ActionBase {
   kind: "UndoAction";
   payload: {
@@ -171,6 +207,8 @@ export type Action =
   | RetireDirectiveAction
   | ApproveTypeAction
   | RejectTypeAction
+  | ApproveLinkAction
+  | RejectLinkAction
   | UndoActionRecord;
 
 // ── Storage ──────────────────────────────────────────────────────
@@ -195,6 +233,29 @@ function snapshotMemory(projectRoot: string): string | null {
   const path = memoryPath(projectRoot);
   if (!existsSync(path)) return null;
   return readFileSync(path, "utf8");
+}
+
+/**
+ * After any directive write, scan the current MEMORY.md for emerging
+ * type and link clusters. This is the self-growth tick that the compress
+ * hook also calls — running it here means MCP-driven writes (Cursor,
+ * Windsurf, etc.) get the same ontology evolution as Claude Code Stop
+ * hook writes. Cheap (regex only, no LLM) and non-fatal on failure.
+ */
+function runOntologyScan(projectRoot: string): void {
+  try {
+    const path = memoryPath(projectRoot);
+    if (!existsSync(path)) return;
+    const content = readFileSync(path, "utf8");
+    const directiveBodies = Array.from(parseExistingDirectives(content));
+    if (directiveBodies.length === 0) return;
+    scanForTypeCandidates(projectRoot, directiveBodies);
+    scanForLinkCandidates(projectRoot, directiveBodies);
+  } catch {
+    // Ontology scan must never break a memory write. Silent fail is
+    // correct — the user has no recourse if a scan throws and they
+    // don't actually need the new candidates to surface immediately.
+  }
 }
 
 function appendActionToLog(projectRoot: string, action: Action): void {
@@ -265,6 +326,7 @@ export function applyRememberDirective(
     },
   };
   appendActionToLog(ctx.projectRoot, action);
+  if (written > 0) runOntologyScan(ctx.projectRoot);
   return action;
 }
 
@@ -317,6 +379,7 @@ export function applyPromoteCandidate(
     },
   };
   appendActionToLog(ctx.projectRoot, action);
+  if (written > 0) runOntologyScan(ctx.projectRoot);
   return action;
 }
 
@@ -410,6 +473,68 @@ export function applyRejectType(
     payload: {
       typeCandidateId,
       proposedName: result.proposedName,
+    },
+  };
+  appendActionToLog(ctx.projectRoot, action);
+  return action;
+}
+
+export interface ApproveLinkInput {
+  linkCandidateId: string;
+  finalKind?: LinkKind;
+}
+
+export function applyApproveLink(
+  ctx: ActionContext,
+  input: ApproveLinkInput
+): ApproveLinkAction | null {
+  const store = loadLinkCandidates(ctx.projectRoot);
+  const linksSnapshot = loadLinks(ctx.projectRoot);
+
+  const result = approveLinkCandidate(store, input.linkCandidateId, input.finalKind);
+  if (!result) return null;
+
+  const newLinks = [...linksSnapshot, result.newLink];
+  saveLinks(ctx.projectRoot, newLinks);
+  saveLinkCandidates(ctx.projectRoot, store);
+
+  const action: ApproveLinkAction = {
+    id: generateActionId(),
+    kind: "ApproveLink",
+    timestamp: new Date().toISOString(),
+    source: ctx.source ?? "unknown",
+    sessionId: ctx.sessionId,
+    payload: {
+      linkCandidateId: input.linkCandidateId,
+      fromDirective: result.candidate.fromDirective,
+      toDirective: result.candidate.toDirective,
+      proposedKind: result.candidate.proposedKind,
+      finalKind: result.newLink.kind,
+      linksSnapshot,
+    },
+  };
+  appendActionToLog(ctx.projectRoot, action);
+  return action;
+}
+
+export function applyRejectLink(
+  ctx: ActionContext,
+  linkCandidateId: string
+): RejectLinkAction | null {
+  const store = loadLinkCandidates(ctx.projectRoot);
+  const result = rejectLinkCandidate(store, linkCandidateId);
+  if (!result) return null;
+  saveLinkCandidates(ctx.projectRoot, store);
+
+  const action: RejectLinkAction = {
+    id: generateActionId(),
+    kind: "RejectLink",
+    timestamp: new Date().toISOString(),
+    source: ctx.source ?? "unknown",
+    sessionId: ctx.sessionId,
+    payload: {
+      linkCandidateId,
+      proposedKind: result.proposedKind,
     },
   };
   appendActionToLog(ctx.projectRoot, action);
@@ -562,6 +687,32 @@ export function undoLastAction(ctx: ActionContext): UndoResult | null {
       notes = `restored rejected type candidate "${target.payload.proposedName}" to pending`;
       break;
     }
+    case "ApproveLink": {
+      // Roll back: restore the prior links file AND mark the link
+      // candidate back to pending so it shows up for review again.
+      saveLinks(ctx.projectRoot, target.payload.linksSnapshot);
+      const lcStore = loadLinkCandidates(ctx.projectRoot);
+      const candidate = lcStore.candidates[target.payload.linkCandidateId];
+      if (candidate) {
+        candidate.status = "pending";
+        delete candidate.reviewedAt;
+        delete candidate.finalKind;
+      }
+      saveLinkCandidates(ctx.projectRoot, lcStore);
+      notes = `removed ${target.payload.finalKind} link and restored link candidate to pending`;
+      break;
+    }
+    case "RejectLink": {
+      const lcStore = loadLinkCandidates(ctx.projectRoot);
+      const candidate = lcStore.candidates[target.payload.linkCandidateId];
+      if (candidate && candidate.status === "rejected") {
+        candidate.status = "pending";
+        delete candidate.reviewedAt;
+      }
+      saveLinkCandidates(ctx.projectRoot, lcStore);
+      notes = `restored rejected link candidate (${target.payload.proposedKind}) to pending`;
+      break;
+    }
     default:
       return null;
   }
@@ -632,6 +783,15 @@ export function whyDirective(
         break;
       case "RejectType":
         hit = action.payload.proposedName.toLowerCase().includes(needle);
+        break;
+      case "ApproveLink":
+        hit =
+          action.payload.fromDirective.toLowerCase().includes(needle) ||
+          action.payload.toDirective.toLowerCase().includes(needle);
+        break;
+      case "RejectLink":
+        // No directive text in payload; let it fall through to no-match
+        hit = false;
         break;
       case "UndoAction":
         hit = action.payload.notes.toLowerCase().includes(needle);
