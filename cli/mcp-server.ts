@@ -45,14 +45,24 @@ import {
   saveCandidateStore,
 } from "./candidates.js";
 import {
+  applyApproveType,
   applyPromoteCandidate,
   applyRejectCandidate,
+  applyRejectType,
   applyRememberDirective,
   applyRetireDirective,
   loadActionLog,
   undoLastAction,
   whyDirective,
 } from "./actions.js";
+import {
+  classifyDirective,
+  listTypeCandidates,
+  loadAllTypes,
+  loadTypeCandidates,
+  resolveTypeCandidateId,
+  scanForTypeCandidates,
+} from "./types-store.js";
 import { isDirectEntry } from "./is-main.js";
 
 const SERVER_NAME = "oh-my-brain";
@@ -202,6 +212,40 @@ const TOOLS: ToolDefinition[] = [
         },
       },
       required: ["text"],
+    },
+  },
+  {
+    name: "brain_types",
+    description:
+      "Manage Directive Types — the typed categories that classify every " +
+      "directive. With action=list, returns all built-in and user-defined " +
+      "types. With action=classify, returns the type that a given directive " +
+      "body would be classified as. With action=list_candidates, returns " +
+      "type candidates the system has auto-proposed from emerging patterns. " +
+      "With action=approve / reject, curates a pending type candidate.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "classify", "list_candidates", "approve", "reject"],
+          description: "What to do. Default: list.",
+        },
+        text: {
+          type: "string",
+          description: "Directive body (required for action=classify).",
+        },
+        id: {
+          type: "string",
+          description:
+            "Type candidate ID or prefix (required for action=approve or reject).",
+        },
+        final_name: {
+          type: "string",
+          description:
+            "Optional edited name when approving (otherwise the proposed name is used).",
+        },
+      },
     },
   },
 ];
@@ -395,6 +439,77 @@ function handleBrainUndoLast(): { content: ToolContent[] } {
   );
 }
 
+function handleBrainTypes(args: Record<string, unknown>): { content: ToolContent[] } {
+  const action = typeof args.action === "string" ? args.action : "list";
+  const root = projectRoot();
+
+  if (action === "list") {
+    const types = loadAllTypes(root);
+    if (types.length === 0) return textResult("no directive types defined");
+    const lines = types.map(
+      (t) => `${t.id} [${t.origin}] — ${t.description}`
+    );
+    return textResult(`${types.length} Directive Type(s):\n\n${lines.join("\n")}`);
+  }
+
+  if (action === "classify") {
+    const text = typeof args.text === "string" ? args.text.trim() : "";
+    if (!text) return textResult("error: text is required for action=classify");
+    const result = classifyDirective(root, text);
+    return textResult(
+      `classified as: ${result.typeId}\nmatched patterns: ${result.matchedPatterns.length > 0 ? result.matchedPatterns.join(", ") : "(none — uncategorized)"}`
+    );
+  }
+
+  if (action === "list_candidates") {
+    const store = loadTypeCandidates(root);
+    const pending = listTypeCandidates(store, { status: "pending" });
+    if (pending.length === 0) return textResult("no pending type candidates");
+    const lines = pending.map(
+      (c) =>
+        `${c.id.slice(0, 10)}  ${c.proposedName}  (keywords: ${c.derivedKeywords.join(", ")}, ${c.exampleDirectives.length} examples)`
+    );
+    return textResult(
+      `${pending.length} pending type candidate(s):\n\n${lines.join("\n")}`
+    );
+  }
+
+  if (action === "approve") {
+    const idPrefix = typeof args.id === "string" ? args.id : "";
+    const finalName =
+      typeof args.final_name === "string" ? args.final_name : undefined;
+    if (!idPrefix) return textResult("error: id is required for action=approve");
+    const store = loadTypeCandidates(root);
+    const fullId = resolveTypeCandidateId(store, idPrefix);
+    if (!fullId) return textResult(`error: no pending type candidate matches "${idPrefix}"`);
+    const result = applyApproveType(
+      { projectRoot: root, source: "mcp" },
+      { typeCandidateId: fullId, finalName }
+    );
+    if (!result) return textResult(`error: type candidate ${fullId} is not pending`);
+    return textResult(
+      `approved type ${fullId.slice(0, 10)}: "${result.payload.finalName}" → user types registry (action ${result.id})`
+    );
+  }
+
+  if (action === "reject") {
+    const idPrefix = typeof args.id === "string" ? args.id : "";
+    if (!idPrefix) return textResult("error: id is required for action=reject");
+    const store = loadTypeCandidates(root);
+    const fullId = resolveTypeCandidateId(store, idPrefix);
+    if (!fullId) return textResult(`error: no pending type candidate matches "${idPrefix}"`);
+    const result = applyRejectType({ projectRoot: root, source: "mcp" }, fullId);
+    if (!result) return textResult(`error: type candidate ${fullId} is not pending`);
+    return textResult(
+      `rejected type ${fullId.slice(0, 10)}: "${result.payload.proposedName}" (action ${result.id})`
+    );
+  }
+
+  return textResult(
+    `error: unknown action "${action}" (expected list|classify|list_candidates|approve|reject)`
+  );
+}
+
 function handleBrainWhy(args: Record<string, unknown>): { content: ToolContent[] } {
   const text = typeof args.text === "string" ? args.text.trim() : "";
   if (!text) return textResult("error: text is required");
@@ -479,6 +594,8 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
       return handleBrainUndoLast();
     case "brain_why":
       return handleBrainWhy(args);
+    case "brain_types":
+      return handleBrainTypes(args);
     default:
       return textResult(`error: unknown tool "${name}"`);
   }

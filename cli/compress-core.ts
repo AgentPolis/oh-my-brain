@@ -18,6 +18,7 @@ import {
   pendingCount,
   saveCandidateStore,
 } from "./candidates.js";
+import { scanForTypeCandidates } from "./types-store.js";
 import { withLock } from "./lockfile.js";
 
 const STALE_TAIL_COUNT = 20;
@@ -631,5 +632,25 @@ export async function main() {
   }
   if (directivesWritten > 0) {
     process.stderr.write(`[brain] provenance logged → ${projectLogPath}\n`);
+  }
+
+  // L2 self-growth tick: scan all current MEMORY.md directives for emerging
+  // type clusters and propose new Directive Types if any are found.
+  // Cheap (regex-based, no LLM) so we can run it every hook invocation.
+  try {
+    const existingMemory = existsSync(memoryPath)
+      ? readFileSync(memoryPath, "utf8")
+      : "";
+    const directiveBodies = Array.from(parseExistingDirectives(existingMemory));
+    const newTypeCandidates = scanForTypeCandidates(cwd, directiveBodies);
+    if (newTypeCandidates.length > 0) {
+      process.stderr.write(
+        `[brain] ${newTypeCandidates.length} new directive type${newTypeCandidates.length === 1 ? "" : "s"} proposed. Run 'brain-candidates list-types' to review.\n`
+      );
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[brain] type scan skipped: ${(err as Error).message}\n`
+    );
   }
 }

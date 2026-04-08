@@ -65,6 +65,15 @@ import {
   saveCandidateStore,
   type CandidateStore,
 } from "./candidates.js";
+import {
+  approveTypeCandidate,
+  loadTypeCandidates,
+  loadUserTypes,
+  rejectTypeCandidate,
+  saveTypeCandidates,
+  saveUserTypes,
+  type DirectiveTypeSchema,
+} from "./types-store.js";
 
 // ── Action types ─────────────────────────────────────────────────
 
@@ -73,6 +82,8 @@ export type ActionKind =
   | "PromoteCandidate"
   | "RejectCandidate"
   | "RetireDirective"
+  | "ApproveType"
+  | "RejectType"
   | "UndoAction";
 
 export interface ActionBase {
@@ -123,6 +134,27 @@ export interface RetireDirectiveAction extends ActionBase {
   };
 }
 
+export interface ApproveTypeAction extends ActionBase {
+  kind: "ApproveType";
+  payload: {
+    typeCandidateId: string;
+    proposedName: string;
+    finalName: string;
+    description: string;
+    matchPatterns: string[];
+    /** Snapshot of the user-types file before this action ran. Used for undo. */
+    userTypesSnapshot: DirectiveTypeSchema[];
+  };
+}
+
+export interface RejectTypeAction extends ActionBase {
+  kind: "RejectType";
+  payload: {
+    typeCandidateId: string;
+    proposedName: string;
+  };
+}
+
 export interface UndoActionRecord extends ActionBase {
   kind: "UndoAction";
   payload: {
@@ -137,6 +169,8 @@ export type Action =
   | PromoteCandidateAction
   | RejectCandidateAction
   | RetireDirectiveAction
+  | ApproveTypeAction
+  | RejectTypeAction
   | UndoActionRecord;
 
 // ── Storage ──────────────────────────────────────────────────────
@@ -313,6 +347,75 @@ export function applyRejectCandidate(
   return action;
 }
 
+export interface ApproveTypeInput {
+  typeCandidateId: string;
+  finalName?: string;
+  finalDescription?: string;
+}
+
+export function applyApproveType(
+  ctx: ActionContext,
+  input: ApproveTypeInput
+): ApproveTypeAction | null {
+  const store = loadTypeCandidates(ctx.projectRoot);
+  const userTypesSnapshot = loadUserTypes(ctx.projectRoot);
+
+  const result = approveTypeCandidate(
+    store,
+    input.typeCandidateId,
+    input.finalName,
+    input.finalDescription
+  );
+  if (!result) return null;
+
+  // Append the new type to the user-types registry and persist both files.
+  const newUserTypes = [...userTypesSnapshot, result.newType];
+  saveUserTypes(ctx.projectRoot, newUserTypes);
+  saveTypeCandidates(ctx.projectRoot, store);
+
+  const action: ApproveTypeAction = {
+    id: generateActionId(),
+    kind: "ApproveType",
+    timestamp: new Date().toISOString(),
+    source: ctx.source ?? "unknown",
+    sessionId: ctx.sessionId,
+    payload: {
+      typeCandidateId: input.typeCandidateId,
+      proposedName: result.candidate.proposedName,
+      finalName: result.newType.name,
+      description: result.newType.description,
+      matchPatterns: result.newType.matchPatterns,
+      userTypesSnapshot,
+    },
+  };
+  appendActionToLog(ctx.projectRoot, action);
+  return action;
+}
+
+export function applyRejectType(
+  ctx: ActionContext,
+  typeCandidateId: string
+): RejectTypeAction | null {
+  const store = loadTypeCandidates(ctx.projectRoot);
+  const result = rejectTypeCandidate(store, typeCandidateId);
+  if (!result) return null;
+  saveTypeCandidates(ctx.projectRoot, store);
+
+  const action: RejectTypeAction = {
+    id: generateActionId(),
+    kind: "RejectType",
+    timestamp: new Date().toISOString(),
+    source: ctx.source ?? "unknown",
+    sessionId: ctx.sessionId,
+    payload: {
+      typeCandidateId,
+      proposedName: result.proposedName,
+    },
+  };
+  appendActionToLog(ctx.projectRoot, action);
+  return action;
+}
+
 export function applyRetireDirective(
   ctx: ActionContext,
   matchText: string
@@ -433,6 +536,32 @@ export function undoLastAction(ctx: ActionContext): UndoResult | null {
       restoreMemory(ctx.projectRoot, target.payload.memoryPathSnapshot);
       notes = `restored ${target.payload.retiredCount} directive(s) matching "${target.payload.matchText}" from archive`;
       break;
+    case "ApproveType": {
+      // Roll back: restore the prior user-types file AND mark the
+      // type candidate back to pending so it shows up for review again.
+      saveUserTypes(ctx.projectRoot, target.payload.userTypesSnapshot);
+      const tcStore = loadTypeCandidates(ctx.projectRoot);
+      const candidate = tcStore.candidates[target.payload.typeCandidateId];
+      if (candidate) {
+        candidate.status = "pending";
+        delete candidate.reviewedAt;
+        delete candidate.finalName;
+      }
+      saveTypeCandidates(ctx.projectRoot, tcStore);
+      notes = `removed user type "${target.payload.finalName}" and restored type candidate to pending`;
+      break;
+    }
+    case "RejectType": {
+      const tcStore = loadTypeCandidates(ctx.projectRoot);
+      const candidate = tcStore.candidates[target.payload.typeCandidateId];
+      if (candidate && candidate.status === "rejected") {
+        candidate.status = "pending";
+        delete candidate.reviewedAt;
+      }
+      saveTypeCandidates(ctx.projectRoot, tcStore);
+      notes = `restored rejected type candidate "${target.payload.proposedName}" to pending`;
+      break;
+    }
     default:
       return null;
   }
@@ -495,6 +624,14 @@ export function whyDirective(
         break;
       case "RetireDirective":
         hit = action.payload.matchText.toLowerCase().includes(needle);
+        break;
+      case "ApproveType":
+        hit =
+          action.payload.finalName.toLowerCase().includes(needle) ||
+          action.payload.proposedName.toLowerCase().includes(needle);
+        break;
+      case "RejectType":
+        hit = action.payload.proposedName.toLowerCase().includes(needle);
         break;
       case "UndoAction":
         hit = action.payload.notes.toLowerCase().includes(needle);
