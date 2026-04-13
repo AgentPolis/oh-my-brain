@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "id",
+    "category",
+    "situation",
+    "options",
+    "expected_decision",
+    "rationale",
+    "relevant_directives",
+    "difficulty"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "category": {
+      "enum": [
+        "architecture",
+        "security",
+        "scope",
+        "tradeoff",
+        "operations",
+        "communication"
+      ]
+    },
+    "situation": { "type": "string", "minLength": 50 },
+    "options": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 2
+    },
+    "expected_decision": { "type": "string" },
+    "rationale": { "type": "string" },
+    "relevant_directives": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "difficulty": { "enum": ["easy", "medium", "hard"] }
+  }
+}

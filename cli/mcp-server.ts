@@ -79,6 +79,7 @@ import {
   markDirectivesReferenced,
 } from "../src/storage/directives.js";
 import { loadDecisionScenarios } from "./eval.js";
+import { formatQuizHistorySummary, summarizeQuizHistory } from "./quiz.js";
 import { ArchiveStore } from "../src/storage/archive.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
 
@@ -264,6 +265,7 @@ const TOOLS: ToolDefinition[] = [
             "security",
             "tradeoff",
             "operations",
+            "communication",
             "random",
           ],
           description: "Scenario category. Default: random.",
@@ -962,6 +964,7 @@ function handleBrainStatus(): { content: ToolContent[] } {
       .join(", ");
     parts.push(`actions_by_kind: ${breakdown}`);
   }
+  parts.push(formatQuizHistorySummary(summarizeQuizHistory(root)));
   return textResult(parts.join("\n"));
 }
 

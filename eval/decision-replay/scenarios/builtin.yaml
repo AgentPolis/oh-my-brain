@@ -2,51 +2,375 @@
   {
     "id": "build-vs-buy-memory",
     "category": "architecture",
-    "situation": "Your agent system needs a memory layer. Mem0 is available as managed service ($19/mo), integration takes 2 days. Building your own takes 2 weeks. Team is 2 people, runway is 6 months.",
-    "options": ["Use Mem0 (fast, managed, external dependency)", "Build in-house (slow, full control, zero dependency)"],
+    "situation": "Your agent system needs a memory layer. Mem0 is available as a managed service for $19 per month and integrates in two days. Building your own takes two weeks. The team is two people, runway is six months, and memory quality is part of the product promise.",
+    "options": [
+      "Use Mem0 (fast, managed, external dependency)",
+      "Build in-house (slower, full control, owned differentiator)"
+    ],
     "expected_decision": "Build in-house",
-    "rationale": "Core differentiators must be owned, not outsourced.",
-    "relevant_directives": ["Build core differentiators in-house, buy commodity"],
+    "rationale": "Core differentiators should be owned instead of outsourced.",
+    "relevant_directives": [
+      "Build core differentiators in-house, buy commodity"
+    ],
     "difficulty": "medium"
+  },
+  {
+    "id": "monolith-vs-split",
+    "category": "architecture",
+    "situation": "The MCP server file is large and growing, but the product is still changing weekly. Three developers touch the code. You can split into packages now or keep one repo with clearer internal modules until the boundaries stop moving.",
+    "options": [
+      "Split into multiple packages now",
+      "Keep the monolith and improve internal modules"
+    ],
+    "expected_decision": "Keep the monolith",
+    "rationale": "For a small team, a monolith is still the simpler coordination model.",
+    "relevant_directives": [
+      "Keep everything in one package until team > 3 people"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "sql-vs-nosql",
+    "category": "architecture",
+    "situation": "Your product has invoices, subscriptions, and audit logs with strong relational constraints. Read traffic is increasing fast. You can keep PostgreSQL and add read replicas, or redesign around DynamoDB for horizontal scale at the cost of weaker relational ergonomics.",
+    "options": [
+      "PostgreSQL with read replicas",
+      "Switch to DynamoDB now"
+    ],
+    "expected_decision": "PostgreSQL with read replicas",
+    "rationale": "The data is relational, so optimize scaling without throwing away the right model.",
+    "relevant_directives": [
+      "Prefer the simplest architecture that preserves correctness"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "sync-vs-async-payments",
+    "category": "architecture",
+    "situation": "Payment processing touches a flaky third-party provider and sometimes takes 20 seconds. You can block the user request on a synchronous API call or accept the request immediately, enqueue the work, and complete with a webhook callback plus reconciliation.",
+    "options": [
+      "Synchronous API call in the request path",
+      "Async queue with webhook callback"
+    ],
+    "expected_decision": "Async queue with webhook callback",
+    "rationale": "Long-running external work should not sit inside the user-facing request path.",
+    "relevant_directives": [
+      "Keep request paths fast and resilient to external dependencies"
+    ],
+    "difficulty": "hard"
   },
   {
     "id": "ship-without-guard",
     "category": "security",
-    "situation": "Launch is in 3 days. You discover the injection guard needs 3 more days. A competitor just shipped. Users are waiting. Option A: Delay launch by 3 days to add the guard. Option B: Ship now without the guard, add it in a patch next week.",
-    "options": ["Delay launch", "Ship without guard"],
+    "situation": "Launch is in three days. You discover the injection guard needs three more days. A competitor just shipped and users are waiting. Option A is delaying launch to add the guard. Option B is shipping now without the guard and patching next week.",
+    "options": [
+      "Delay launch",
+      "Ship without the guard"
+    ],
     "expected_decision": "Delay launch",
-    "rationale": "Security is baseline, not feature. Never ship without it.",
-    "relevant_directives": ["Never ship without security review, even under time pressure"],
+    "rationale": "Security is a baseline constraint, not a feature to defer.",
+    "relevant_directives": [
+      "Never ship without security review, even under time pressure"
+    ],
     "difficulty": "hard"
   },
   {
-    "id": "monolith-vs-split",
-    "category": "scope",
-    "situation": "The MCP server file is 28K lines and growing. Three developers work on it. Should you split it into separate packages?",
-    "options": ["Split into 3 packages (mcp-core, mcp-tools, mcp-transport)", "Keep as monolith with better internal modules"],
-    "expected_decision": "Keep as monolith",
-    "rationale": "Team < 5 people, monolith is simpler.",
-    "relevant_directives": ["Keep everything in one package until team > 3 people"],
+    "id": "dependency-vulnerability",
+    "category": "security",
+    "situation": "A critical CVE lands in a production dependency. The quick patch is to pin a temporary fork, but the supported fix requires upgrading across three major versions and revalidating integrations. The team can absorb only one response path this week.",
+    "options": [
+      "Patch and pin the current line",
+      "Upgrade to the supported fixed version now"
+    ],
+    "expected_decision": "Upgrade to the supported fixed version now",
+    "rationale": "Critical vulnerabilities should be fixed at the supported source of truth, not hidden behind a brittle temporary fork.",
+    "relevant_directives": [
+      "Prefer durable fixes over temporary patches for security-critical paths"
+    ],
+    "difficulty": "hard"
+  },
+  {
+    "id": "api-key-in-env",
+    "category": "security",
+    "situation": "A teammate accidentally committed a production API key. Revoking it immediately will break staging and a demo build until new credentials propagate. Waiting until the next release avoids disruption but leaves a known secret exposed in git and CI history.",
+    "options": [
+      "Rotate and revoke immediately",
+      "Wait until the next release window"
+    ],
+    "expected_decision": "Rotate and revoke immediately",
+    "rationale": "Exposed secrets should be treated as compromised the moment they leak.",
+    "relevant_directives": [
+      "Treat leaked credentials as compromised immediately"
+    ],
+    "difficulty": "easy"
+  },
+  {
+    "id": "auth-model",
+    "category": "security",
+    "situation": "A new microservice needs authentication and will run behind an API gateway with mobile and web clients. You can issue stateless JWTs across services, or keep server-side sessions in Redis for centralized revocation and simpler invalidation logic.",
+    "options": [
+      "JWT tokens",
+      "Session-based auth with Redis"
+    ],
+    "expected_decision": "Session-based auth with Redis",
+    "rationale": "Centralized revocation is more important here than pure statelessness.",
+    "relevant_directives": [
+      "Choose the auth model that makes revocation and incident response straightforward"
+    ],
     "difficulty": "medium"
   },
   {
     "id": "user-feedback-conflict",
     "category": "tradeoff",
-    "situation": "User A says 'too many review steps, just auto-save everything.' User B says 'I'm afraid auto-save will store wrong things.' How do you design the default Memory Candidates behavior?",
-    "options": ["Auto-save everything (satisfy User A)", "Review everything (satisfy User B)", "Confidence-based split (auto-save high confidence, review low)"],
-    "expected_decision": "Confidence-based split",
-    "rationale": "Not a binary choice. High confidence auto-saves, uncertain goes to review.",
-    "relevant_directives": ["Auto-save when confidence > 0.8, review when < 0.8"],
+    "situation": "User A says there are too many review steps and wants everything auto-saved. User B says auto-save will store wrong things and erode trust. You need to pick the default Memory Candidates behavior for everyone, not a per-user special case.",
+    "options": [
+      "Auto-save everything",
+      "Review everything",
+      "Use a confidence-based split"
+    ],
+    "expected_decision": "Use a confidence-based split",
+    "rationale": "The system should auto-save obvious cases and route uncertain ones to review.",
+    "relevant_directives": [
+      "Auto-save when confidence > 0.8, review when < 0.8"
+    ],
     "difficulty": "hard"
   },
   {
-    "id": "governance-centralized-vs-distributed",
+    "id": "feature-vs-debt",
+    "category": "tradeoff",
+    "situation": "Sales promised a feature that might close a large account this sprint. At the same time, the test suite fails one run out of ten and keeps slowing down releases. The team can only finish one of these efforts before the sprint review.",
+    "options": [
+      "Build the promised feature",
+      "Fix the flaky test suite first"
+    ],
+    "expected_decision": "Fix the flaky test suite first",
+    "rationale": "A delivery pipeline that fails randomly will keep poisoning every future promise.",
+    "relevant_directives": [
+      "Protect delivery reliability before adding new surface area"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "mvp-scope",
+    "category": "scope",
+    "situation": "You have three weeks to launch and the wishlist contains twelve features. Five can be done well, or twelve can be shipped half-finished. Marketing wants breadth, but support capacity is tiny and the team will not have time for rework before launch.",
+    "options": [
+      "Ship all 12 features in rough form",
+      "Cut scope and ship only the strongest 5"
+    ],
+    "expected_decision": "Cut scope and ship only the strongest 5",
+    "rationale": "A smaller coherent v1 is better than a broad, fragile launch.",
+    "relevant_directives": [
+      "Ship the smallest product that can be trusted"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "backward-compat",
+    "category": "scope",
+    "situation": "A new API version is much cleaner but breaks three existing integrations that still pay for the product. You can ship the breaking change now and ask everyone to migrate quickly, or maintain both versions during a longer transition with more code to support.",
+    "options": [
+      "Ship the breaking change now",
+      "Maintain both versions during migration"
+    ],
+    "expected_decision": "Maintain both versions during migration",
+    "rationale": "Existing integrations should not be broken casually when a transition path is feasible.",
+    "relevant_directives": [
+      "Prefer compatibility bridges over abrupt breaking changes for active users"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "pricing-launch-scope",
+    "category": "scope",
+    "situation": "You are launching a new product tier in ten days. Finance wants annual billing, discounts, seat limits, coupons, and proration from day one. Engineering can ship flat monthly billing now or delay the entire launch by two weeks to support the full matrix.",
+    "options": [
+      "Delay launch to support the full pricing matrix",
+      "Launch with flat monthly billing and add complexity later"
+    ],
+    "expected_decision": "Launch with flat monthly billing and add complexity later",
+    "rationale": "Pricing complexity should not block a first launch unless it is core to the offer.",
+    "relevant_directives": [
+      "Start with the simplest version that supports learning"
+    ],
+    "difficulty": "easy"
+  },
+  {
+    "id": "governance-centralized",
     "category": "operations",
-    "situation": "A multi-agent system needs a governance framework. Option A: each agent carries its own rules (distributed). Option B: a central constitution governs all agents (centralized).",
-    "options": ["Distributed (per-agent rules)", "Centralized (single constitution)"],
-    "expected_decision": "Centralized",
-    "rationale": "Rule consistency matters more than agent autonomy.",
-    "relevant_directives": ["Governance rules must be centralized, not per-agent"],
+    "situation": "A multi-agent system needs a governance framework. Option A is letting each agent carry its own rules. Option B is a shared constitution and central rule set that every agent reads from the same place before acting.",
+    "options": [
+      "Distributed per-agent rules",
+      "Centralized shared constitution"
+    ],
+    "expected_decision": "Centralized shared constitution",
+    "rationale": "Consistency of rules matters more than localized autonomy here.",
+    "relevant_directives": [
+      "Governance rules must be centralized, not per-agent"
+    ],
     "difficulty": "hard"
+  },
+  {
+    "id": "incident-response",
+    "category": "operations",
+    "situation": "Production is down and the root cause is unclear. A restart might bring the service back quickly, but it risks erasing evidence and the outage could return. A deeper investigation will add around twenty minutes of downtime while the team collects logs and traces first.",
+    "options": [
+      "Quick restart now",
+      "Investigate before restarting"
+    ],
+    "expected_decision": "Investigate before restarting",
+    "rationale": "When the cause is unclear, protecting signal for diagnosis matters more than a cosmetic temporary recovery.",
+    "relevant_directives": [
+      "Preserve debugging evidence during incidents before applying blind fixes"
+    ],
+    "difficulty": "hard"
+  },
+  {
+    "id": "hiring-priority",
+    "category": "operations",
+    "situation": "The team has budget for one hire. There are already three backend engineers and no one fully owns the product surface end to end. You can hire a senior backend engineer for depth or a junior fullstack engineer who can absorb cross-functional work and free the core team.",
+    "options": [
+      "Hire a senior backend engineer",
+      "Hire a junior fullstack engineer"
+    ],
+    "expected_decision": "Hire a junior fullstack engineer",
+    "rationale": "The team gap is breadth and ownership coverage, not more backend specialization.",
+    "relevant_directives": [
+      "Hire for the scarcest constraint on the current team"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "migration-strategy",
+    "category": "operations",
+    "situation": "You are migrating from Heroku to AWS. A big-bang cutover means one day of planned downtime and one migration path to reason about. A gradual migration takes two weeks and more infra complexity, but reduces blast radius and gives rollback options at each step.",
+    "options": [
+      "Big-bang migration",
+      "Gradual migration"
+    ],
+    "expected_decision": "Gradual migration",
+    "rationale": "Risk should be reduced when the system can be migrated incrementally.",
+    "relevant_directives": [
+      "Prefer reversible migrations over single irreversible cutovers"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "bad-news-delivery",
+    "category": "communication",
+    "situation": "A feature will miss the deadline by two weeks. You already know the current plan is broken, but the full revised timeline is not finalized. You can tell stakeholders now with partial information or wait a few days until the replacement plan is more polished.",
+    "options": [
+      "Tell stakeholders now",
+      "Wait until the revised plan is complete"
+    ],
+    "expected_decision": "Tell stakeholders now",
+    "rationale": "Bad news gets more expensive when it is delayed.",
+    "relevant_directives": [
+      "Communicate bad news early, even before every detail is final"
+    ],
+    "difficulty": "easy"
+  },
+  {
+    "id": "code-review-conflict",
+    "category": "communication",
+    "situation": "A senior developer strongly disagrees with your architecture choice in a pull request review. You still think your design is correct, but the disagreement is now blocking progress. You can push back and argue the case, or accommodate the reviewer's preference to unblock the merge.",
+    "options": [
+      "Push back and defend the design",
+      "Accommodate the reviewer to unblock"
+    ],
+    "expected_decision": "Push back and defend the design",
+    "rationale": "Technical disagreement should be resolved on merits instead of hierarchy when the design decision matters.",
+    "relevant_directives": [
+      "Optimize for correctness over deference in technical disagreements"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "meeting-vs-async",
+    "category": "communication",
+    "situation": "Cross-team alignment is needed on a new workflow touching engineering, support, and finance. The question is important but not urgent. You can schedule a one-hour meeting for everyone, or write an RFC and collect async feedback over two days before meeting only if needed.",
+    "options": [
+      "Schedule the one-hour meeting first",
+      "Write an RFC and collect async feedback first"
+    ],
+    "expected_decision": "Write an RFC and collect async feedback first",
+    "rationale": "Async alignment scales better when the issue is important but not yet time-critical.",
+    "relevant_directives": [
+      "Default to async communication before meetings"
+    ],
+    "difficulty": "easy"
+  },
+  {
+    "id": "chinese-or-english",
+    "category": "communication",
+    "situation": "The team includes fluent Chinese and English speakers across product, engineering, and operations. Internal docs need to be understandable to everyone who will maintain the system later. You can pick the dominant local language or the language with the broadest cross-team reach.",
+    "options": [
+      "Write internal docs in Chinese",
+      "Write internal docs in English"
+    ],
+    "expected_decision": "Write internal docs in English",
+    "rationale": "Shared operational docs should default to the language that maximizes cross-team readability.",
+    "relevant_directives": [],
+    "difficulty": "medium"
+  },
+  {
+    "id": "deprecate-old-ui",
+    "category": "scope",
+    "situation": "The old UI is ugly but still works for a set of long-tail customers. The new UI is cleaner and easier to maintain, but finishing the migration would take another month. You can keep both for one more quarter or force everyone onto the new experience this month.",
+    "options": [
+      "Force migration this month",
+      "Keep both for one more quarter"
+    ],
+    "expected_decision": "Keep both for one more quarter",
+    "rationale": "A short transition period is justified when it avoids unnecessary churn for active customers.",
+    "relevant_directives": [
+      "Do not break working user flows abruptly when a bridge is affordable"
+    ],
+    "difficulty": "easy"
+  },
+  {
+    "id": "support-load-tradeoff",
+    "category": "tradeoff",
+    "situation": "A proposed self-serve feature would reduce support tickets next month, but building it now will delay the reliability improvements that the current support team is depending on today. The team can only fund one initiative in the next cycle.",
+    "options": [
+      "Build the self-serve feature",
+      "Invest in reliability improvements first"
+    ],
+    "expected_decision": "Invest in reliability improvements first",
+    "rationale": "Reducing current pain in the existing system takes priority over speculative future efficiency gains.",
+    "relevant_directives": [
+      "Fix the root operational pain before optimizing the support surface"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "escalation-style",
+    "category": "communication",
+    "situation": "An issue between teams is blocking delivery and both sides are frustrated. You can escalate directly in a shared written summary with facts and open decisions, or schedule a private chain of side conversations first to avoid visible tension.",
+    "options": [
+      "Write a shared factual summary",
+      "Handle it through private side conversations"
+    ],
+    "expected_decision": "Write a shared factual summary",
+    "rationale": "Transparent written escalation keeps the discussion anchored to facts instead of politics.",
+    "relevant_directives": [
+      "Prefer clear written communication over opaque side-channel coordination"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "runbook-vs-heroics",
+    "category": "operations",
+    "situation": "The on-call rotation keeps getting rescued by one senior engineer who knows the system deeply. You can spend this cycle documenting a runbook and training the team, or keep relying on the expert while shipping more user-facing work.",
+    "options": [
+      "Document the runbook and train the team",
+      "Keep relying on the senior engineer"
+    ],
+    "expected_decision": "Document the runbook and train the team",
+    "rationale": "Operational resilience should not depend on one person remaining available forever.",
+    "relevant_directives": [
+      "Remove single-person dependencies from critical operations"
+    ],
+    "difficulty": "easy"
   }
 ]

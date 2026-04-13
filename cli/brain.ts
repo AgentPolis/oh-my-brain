@@ -36,6 +36,7 @@ Commands:
   init             Scan the project and bootstrap initial memory
   import           Import directives from existing AI rule files
   mcp              Start the MCP server over stdio (alias: brain-mcp)
+  quiz             Run a 5-scenario Decision Match quiz
   help             Show this message
   version          Show the version number
 
@@ -114,13 +115,19 @@ async function main(): Promise<number> {
   if (cmd === "eval") {
     const delegated = [process.argv[0], "eval", ...args.slice(1)];
     const mod = await import("./eval.js");
-    return mod.runDecisionReplayCli(delegated, process.cwd());
+    return await mod.runDecisionReplayCli(delegated, process.cwd());
   }
 
   if (cmd === "init") {
     const delegated = [process.argv[0], "init", ...args.slice(1)];
     const mod = await import("./init-scan.js");
     return mod.runInitCli(delegated, process.cwd());
+  }
+
+  if (cmd === "quiz") {
+    const delegated = [process.argv[0], "quiz", ...args.slice(1)];
+    const mod = await import("./quiz.js");
+    return await mod.runQuizCli(delegated, process.cwd());
   }
 
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);
