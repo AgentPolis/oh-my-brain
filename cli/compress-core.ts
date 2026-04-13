@@ -8,6 +8,7 @@ import {
   writeFileSync,
   renameSync,
 } from "fs";
+import { createHash, randomUUID } from "crypto";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { classify } from "../src/triage/classifier.js";
@@ -23,6 +24,8 @@ import {
 import { scanForTypeCandidates } from "./types-store.js";
 import { jaccard, scanForLinkCandidates, tokenSet } from "./links-store.js";
 import { withLock } from "./lockfile.js";
+import { ArchiveStore, extractTags } from "../src/storage/archive.js";
+import { TimelineIndex } from "../src/storage/timeline.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -96,6 +99,12 @@ interface ProcessedMessage {
   wasCompressed: boolean;
 }
 
+interface ArchiveWriteResult {
+  appended: number;
+  skipped: number;
+  bounds: { earliest: string; latest: string } | null;
+}
+
 const MEMORY_CANDIDATE_PATTERNS = [
   /\b(should|shouldn't|needs? to|must not|too much|too many|reduce|improve|fix|wrong)\b/i,
   /(應該|不應該|不要|別再|太多|太少|搞錯|改善|改成|保持|一律|永遠|都要|需要|不能|希望)/,
@@ -112,6 +121,62 @@ export interface WriteMetadata {
   sessionId?: string;
   logPath?: string;
   guardSource?: "compress" | "mcp" | "candidates";
+}
+
+export function extractEventTime(text: string, fallback: string): string {
+  const absoluteMatch = text.match(
+    /\b(?:on\s+)?([A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)\b/
+  );
+  if (absoluteMatch) {
+    const normalized = absoluteMatch[1].replace(/(\d)(st|nd|rd|th)\b/g, "$1");
+    const parts = normalized.match(/^([A-Z][a-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?$/);
+    if (parts) {
+      const monthNames = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+      ];
+      const monthIndex = monthNames.indexOf(parts[1].toLowerCase());
+      if (monthIndex >= 0) {
+        const day = Number(parts[2]);
+        const year = Number(parts[3] ?? new Date(fallback).getUTCFullYear());
+        return new Date(Date.UTC(year, monthIndex, day)).toISOString();
+      }
+    }
+
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) {
+      return new Date(
+        Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate())
+      ).toISOString();
+    }
+  }
+
+  const fallbackDate = new Date(fallback);
+  if (Number.isNaN(fallbackDate.getTime())) return fallback;
+  const lower = text.toLowerCase();
+  if (/\byesterday\b/.test(lower)) {
+    return new Date(fallbackDate.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (/\blast week\b/.test(lower)) {
+    return new Date(fallbackDate.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (/\blast month\b/.test(lower)) {
+    const shifted = new Date(fallbackDate);
+    shifted.setMonth(shifted.getMonth() - 1);
+    return shifted.toISOString();
+  }
+
+  return fallback;
 }
 
 export interface MergeCandidate {
@@ -635,6 +700,7 @@ export function writeDirectivesToMemory(
       directiveText: m.originalText.trim(),
       evidenceText: m.originalText,
       evidenceTurn: m.index,
+      eventTime: extractEventTime(m.originalText, new Date().toISOString()),
     }))
     .filter((record) => record.directiveText.length > 0);
 
@@ -748,6 +814,74 @@ export function appendProjectRunLog(
   return logPath;
 }
 
+export function archiveCompressedMessages(
+  projectRoot: string,
+  processed: ProcessedMessage[],
+  options: {
+    sessionId: string;
+    sessionStart: string;
+    maxArchiveMb?: number;
+  }
+): ArchiveWriteResult {
+  const archive = new ArchiveStore(join(projectRoot, ".squeeze"), options.maxArchiveMb);
+  const existingHashes = new Set(
+    archive
+      .getBySession(options.sessionId)
+      .map((entry) => hashArchiveIdentity(options.sessionId, entry.role, entry.content))
+  );
+
+  const archiveEntries = processed
+    .filter(
+      (message): message is ProcessedMessage & { role: "user" | "assistant" } =>
+        message.wasCompressed &&
+        message.level === Level.Observation &&
+        (message.role === "user" || message.role === "assistant")
+    )
+    .map((message) => ({
+      id: randomUUID(),
+      ts: new Date(Date.parse(options.sessionStart) + message.index * 60_000).toISOString(),
+      ingest_ts: new Date().toISOString(),
+      role: message.role,
+      content: message.originalText,
+      summary: message.compressedText,
+      level: message.level,
+      turn_index: message.index,
+      session_id: options.sessionId,
+      tags: extractTags(message.originalText),
+    }));
+
+  const deduped = archiveEntries.filter((entry) => {
+    const hash = hashArchiveIdentity(options.sessionId, entry.role, entry.content);
+    if (existingHashes.has(hash)) return false;
+    existingHashes.add(hash);
+    return true;
+  });
+  archive.append(deduped);
+
+  const timeline = new TimelineIndex(join(projectRoot, ".squeeze"));
+  timeline.rebuild();
+
+  return {
+    appended: deduped.length,
+    skipped: archiveEntries.length - deduped.length,
+    bounds: timeline.bounds(),
+  };
+}
+
+function hashArchiveIdentity(sessionId: string, role: string, content: string): string {
+  return createHash("sha256")
+    .update(`${sessionId}\u0000${role}\u0000${content}`)
+    .digest("hex");
+}
+
+function parseMaxArchiveMbArg(args: string[]): number | undefined {
+  const index = args.indexOf("--max-archive-mb");
+  if (index === -1) return undefined;
+  const raw = args[index + 1];
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
@@ -755,12 +889,13 @@ export async function main() {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("oh-my-brain 0.3.1\n");
+    process.stdout.write("oh-my-brain 0.4.0\n");
     return;
   }
 
   const cwd = process.cwd();
   const sessionPath = findSessionJsonl(cwd);
+  const maxArchiveMb = parseMaxArchiveMbArg(args);
 
   if (!sessionPath) {
     process.stderr.write(`[brain] no session found for ${cwd}\n`);
@@ -769,6 +904,7 @@ export async function main() {
 
   const entries = parseSessionEntries(sessionPath);
   const processed = processMessages(entries);
+  const sessionStart = statSync(sessionPath).mtime.toISOString();
 
   const totalMsgs = processed.length;
   const compressedCount = processed.filter((m) => m.wasCompressed).length;
@@ -787,6 +923,11 @@ export async function main() {
   const directivesWritten = writeDirectivesToMemory(processed, memoryPath, {
     source: "claude",
     sessionId,
+  });
+  const archiveResult = archiveCompressedMessages(cwd, processed, {
+    sessionId,
+    sessionStart,
+    maxArchiveMb,
   });
   const memoryCandidates = extractMemoryCandidates(processed);
 
@@ -829,6 +970,13 @@ export async function main() {
   }
   if (savedTokens === 0 && directivesWritten === 0) {
     process.stderr.write(`[brain] ${totalMsgs} msgs scanned. Nothing to compress.\n`);
+  }
+  if (archiveResult.appended > 0 || archiveResult.skipped > 0) {
+    process.stderr.write(
+      `[brain] archived ${archiveResult.appended} message${archiveResult.appended === 1 ? "" : "s"}`
+      + `${archiveResult.skipped > 0 ? ` (${archiveResult.skipped} deduped)` : ""}, `
+      + `timeline: ${archiveResult.bounds?.earliest ?? "n/a"} ~ ${archiveResult.bounds?.latest ?? "n/a"}\n`
+    );
   }
   if (newCandidates.length > 0) {
     process.stderr.write(

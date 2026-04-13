@@ -6,6 +6,8 @@ import { handleRequest } from "../cli/mcp-server.js";
 import { writeDirectivesToMemory } from "../cli/compress-core.js";
 import { Level } from "../src/types.js";
 import { saveLinks } from "../cli/links-store.js";
+import { ArchiveStore } from "../src/storage/archive.js";
+import { TimelineIndex } from "../src/storage/timeline.js";
 
 describe("MCP server", () => {
   let tmp: string;
@@ -56,7 +58,7 @@ describe("MCP server", () => {
     expect(result.capabilities.tools).toBeDefined();
   });
 
-  it("lists all five brain_* tools", () => {
+  it("lists the core brain_* tools including brain_search", () => {
     const response = handleRequest({
       jsonrpc: "2.0",
       id: 1,
@@ -66,6 +68,7 @@ describe("MCP server", () => {
     const names = result.tools.map((t) => t.name);
     expect(names).toContain("brain_remember");
     expect(names).toContain("brain_recall");
+    expect(names).toContain("brain_search");
     expect(names).toContain("brain_candidates");
     expect(names).toContain("brain_retire");
     expect(names).toContain("brain_status");
@@ -107,6 +110,43 @@ describe("MCP server", () => {
     // Agent instruction moved to tool description — not in response body
   });
 
+  it("brain_recall summary includes archive preview when timeline exists", () => {
+    callTool("brain_remember", { text: "Always validate input" });
+    const archive = new ArchiveStore(join(tmp, ".squeeze"));
+    archive.append([
+      {
+        id: "s1",
+        ts: "2026-04-13T10:00:00.000Z",
+        ingest_ts: "2026-04-13T10:01:00.000Z",
+        role: "user",
+        content: "Code review planning for memory architecture.",
+        summary: "code review",
+        level: 1,
+        turn_index: 1,
+        tags: ["review", "memory", "architecture"],
+      },
+      {
+        id: "s2",
+        ts: "2026-04-12T10:00:00.000Z",
+        ingest_ts: "2026-04-12T10:01:00.000Z",
+        role: "assistant",
+        content: "Deployment follow-up and testing.",
+        summary: "deployment",
+        level: 1,
+        turn_index: 2,
+        tags: ["deployment", "testing"],
+      },
+    ]);
+    const timeline = new TimelineIndex(join(tmp, ".squeeze"));
+    timeline.rebuild();
+
+    const response = callTool("brain_recall");
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Archived history: 2 conversations (2026-04-12 ~ 2026-04-13)");
+    expect(text).toContain("Recent: Apr13 (1 msgs:");
+    expect(text).toContain("Use brain_search to look up specific dates or topics.");
+  });
+
   it("brain_recall returns empty state when no directives exist", () => {
     const response = callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
@@ -119,6 +159,7 @@ describe("MCP server", () => {
     const tools = (listResponse.result as { tools: { name: string; description: string }[] }).tools;
     const recallTool = tools.find((t) => t.name === "brain_recall");
     expect(recallTool!.description).toContain("brain_remember");
+    expect(recallTool!.description).toContain("brain_search");
     expect(recallTool!.description).toContain("brain_candidates");
     expect(recallTool!.description).toContain("AGENT BEHAVIOR");
   });
@@ -165,7 +206,121 @@ describe("MCP server", () => {
 
     const response = callTool("brain_recall", { mode: "all", with_evidence: true });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("event_time:");
     expect(text).toContain("evidence (turn 3): Always use TypeScript");
+  });
+
+  it("brain_search returns empty-state guidance when archive is empty", () => {
+    const response = callTool("brain_search", { when: "last week" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("No archived conversations yet");
+  });
+
+  it("brain_search searches archive by exact day", () => {
+    const archivePath = join(tmp, ".squeeze");
+    const archive = new ArchiveStore(archivePath);
+    archive.append([
+      {
+        id: "a1",
+        ts: "2026-04-06T14:32:00.000Z",
+        ingest_ts: "2026-04-06T14:33:00.000Z",
+        role: "user",
+        content: "I just got my car serviced and the GPS still fails.",
+        summary: "car service",
+        level: 1,
+        turn_index: 1,
+        tags: ["service", "gps"],
+      },
+    ]);
+
+    const response = callTool("brain_search", { when: "2026-04-06" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Found 1 entry");
+    expect(text).toContain("car serviced");
+  });
+
+  it("brain_search searches archive by keyword", () => {
+    const archive = new ArchiveStore(join(tmp, ".squeeze"));
+    archive.append([
+      {
+        id: "a2",
+        ts: "2026-04-07T09:00:00.000Z",
+        ingest_ts: "2026-04-07T09:01:00.000Z",
+        role: "assistant",
+        content: "The car service issue may be related to the GPS module.",
+        summary: "service issue",
+        level: 1,
+        turn_index: 2,
+        tags: ["service", "gps"],
+      },
+    ]);
+
+    const response = callTool("brain_search", { query: "car service" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("query: car service");
+    expect(text).toContain("GPS module");
+  });
+
+  it("brain_search parses relative dates and respects limits", () => {
+    const archive = new ArchiveStore(join(tmp, ".squeeze"));
+    const now = new Date();
+    const withinWeek = new Date(now);
+    withinWeek.setDate(withinWeek.getDate() - 2);
+    const alsoWithinWeek = new Date(now);
+    alsoWithinWeek.setDate(alsoWithinWeek.getDate() - 1);
+    archive.append([
+      {
+        id: "a3",
+        ts: withinWeek.toISOString(),
+        ingest_ts: withinWeek.toISOString(),
+        role: "user",
+        content: "Recent deployment note one.",
+        summary: "deployment",
+        level: 1,
+        turn_index: 3,
+        tags: ["deployment"],
+      },
+      {
+        id: "a4",
+        ts: alsoWithinWeek.toISOString(),
+        ingest_ts: alsoWithinWeek.toISOString(),
+        role: "assistant",
+        content: "Recent deployment note two.",
+        summary: "deployment",
+        level: 1,
+        turn_index: 4,
+        tags: ["deployment"],
+      },
+    ]);
+
+    const response = callTool("brain_search", { when: "last week", limit: 1 });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Found 2 entries (last week)");
+    const noteMatches = text.match(/Recent deployment note/g) ?? [];
+    expect(noteMatches).toHaveLength(1);
+  });
+
+  it("brain_search without args returns timeline summary", () => {
+    const archive = new ArchiveStore(join(tmp, ".squeeze"));
+    archive.append([
+      {
+        id: "a5",
+        ts: "2026-04-11T10:00:00.000Z",
+        ingest_ts: "2026-04-11T10:00:01.000Z",
+        role: "user",
+        content: "Timeline preview for testing.",
+        summary: "timeline preview",
+        level: 1,
+        turn_index: 5,
+        tags: ["testing", "preview"],
+      },
+    ]);
+    const timeline = new TimelineIndex(join(tmp, ".squeeze"));
+    timeline.rebuild();
+
+    const response = callTool("brain_search");
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Apr11: 1 msgs");
   });
 
   it("brain_candidates supports full add → list → approve flow", () => {
@@ -244,6 +399,20 @@ describe("MCP server", () => {
   it("brain_status returns counts and health fields", () => {
     callTool("brain_remember", { text: "test directive" });
     callTool("brain_candidates", { action: "add", text: "pending candidate" });
+    const archive = new ArchiveStore(join(tmp, ".squeeze"));
+    archive.append([
+      {
+        id: "st1",
+        ts: "2026-04-12T10:00:00.000Z",
+        ingest_ts: "2026-04-12T10:01:00.000Z",
+        role: "user",
+        content: "Status archive entry",
+        summary: "status archive",
+        level: 1,
+        turn_index: 1,
+        tags: ["status"],
+      },
+    ]);
 
     const status = callTool("brain_status");
     const text = (status.result as { content: { text: string }[] }).content[0].text;
@@ -254,6 +423,9 @@ describe("MCP server", () => {
     expect(text).toContain("merge_proposals_pending: 0");
     expect(text).toContain("last_ontology_scan:");
     expect(text).toContain("health: healthy");
+    expect(text).toContain("archive_entries: 1");
+    expect(text).toContain("archive_date_range: 2026-04-12 ~ 2026-04-12");
+    expect(text).toContain("archive_size_kb:");
     expect(text).toContain("token_budget.total_directives: 1");
   });
 

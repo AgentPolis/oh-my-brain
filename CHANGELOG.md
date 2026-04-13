@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.4.0] - 2026-04-14
+
+**Memory architecture v2: compression is archival, not deletion.**
+This release adds a lossless archive for compressed L1 history, a day-level
+timeline index, best-effort bitemporal timestamps for durable facts, and a
+new `brain_search` retrieval path so agents can look up exact dates and full
+conversation details on demand without increasing startup context cost.
+
+### Added
+
+- Append-only archive store at `.squeeze/archive.jsonl` for compressed L1
+  observations, including full original text, summaries, timestamps, session
+  provenance, and keyword tags.
+- Day-level timeline index at `.squeeze/timeline.json` with compact topic
+  previews for summary-mode recall.
+- `brain_search` MCP tool for archive retrieval by exact date, date range,
+  relative date (`last week`, `last month`), or keyword.
+- Archive-aware `brain_status` fields: `archive_entries`,
+  `archive_date_range`, and `archive_size_kb`.
+
+### Changed
+
+- Directive and preference storage now tracks best-effort `event_time`
+  separately from ingest time (`created_at`), with backward-compatible
+  migration for existing SQLite data.
+- `brain_recall` summary mode now advertises archived history and recent
+  timeline topics while staying compact.
+- The Claude Code compress hook now archives compressed L1 observations,
+  dedupes repeated session retries, and rebuilds the timeline automatically.
+- CLI / MCP / package version strings bumped to `0.4.0`.
+
+### Docs
+
+- README now documents the lossless archive model, temporal lookup via
+  `brain_search`, and the updated tool surface.
+
 ## [0.3.1] - 2026-04-13
 
 **Hermes-style auto-learning, lazy recall, and Decision Replay.**

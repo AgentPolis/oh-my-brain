@@ -23,16 +23,17 @@ export class DirectiveStore {
     value: string,
     sourceMsgId: number | null,
     confirmedByUser = false,
-    evidence?: { text?: string; turn?: number }
+    evidence?: { text?: string; turn?: number },
+    eventTime?: string
   ): number {
     // Atomic insert-then-supersede in one transaction.
     const txn = this.db.transaction(() => {
       const result = this.db
         .prepare(
           `INSERT INTO directives (
-             key, value, source_msg_id, confirmed_by_user, evidence_text, evidence_turn
+             key, value, source_msg_id, confirmed_by_user, evidence_text, evidence_turn, event_time
            )
-           VALUES (?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           key,
@@ -40,7 +41,8 @@ export class DirectiveStore {
           sourceMsgId,
           confirmedByUser ? 1 : 0,
           evidence?.text ?? null,
-          evidence?.turn ?? null
+          evidence?.turn ?? null,
+          eventTime ?? new Date().toISOString()
         );
 
       const newId = Number(result.lastInsertRowid);
@@ -87,15 +89,16 @@ export class DirectiveStore {
     key: string,
     value: string,
     confidence: number,
-    sourceMsgId: number
+    sourceMsgId: number,
+    eventTime?: string
   ): number {
     const txn = this.db.transaction(() => {
       const result = this.db
         .prepare(
-          `INSERT INTO preferences (key, value, confidence, source_msg_id)
-           VALUES (?, ?, ?, ?)`
+          `INSERT INTO preferences (key, value, confidence, source_msg_id, event_time)
+           VALUES (?, ?, ?, ?, ?)`
         )
-        .run(key, value, confidence, sourceMsgId);
+        .run(key, value, confidence, sourceMsgId, eventTime ?? new Date().toISOString());
 
       const newId = Number(result.lastInsertRowid);
       this.db
@@ -142,6 +145,7 @@ interface RawDirectiveRow {
   value: string;
   source_msg_id: number | null;
   created_at: string;
+  event_time: string | null;
   confirmed_by_user: number;
   evidence_text: string | null;
   evidence_turn: number | null;
@@ -157,6 +161,7 @@ interface RawPreferenceRow {
   confidence: number;
   source_msg_id: number;
   created_at: string;
+  event_time: string | null;
   superseded_by: number | null;
   superseded_at: string | null;
 }
@@ -168,6 +173,7 @@ function toDirectiveRecord(row: RawDirectiveRow): DirectiveRecord {
     value: row.value,
     sourceMsgId: row.source_msg_id,
     createdAt: row.created_at,
+    eventTime: row.event_time ?? row.created_at,
     confirmedByUser: row.confirmed_by_user === 1,
     evidenceText: row.evidence_text,
     evidenceTurn: row.evidence_turn,
@@ -205,6 +211,7 @@ export function persistDirectives(
     directiveText: string;
     evidenceText?: string;
     evidenceTurn?: number;
+    eventTime?: string;
   }>
 ): void {
   if (records.length === 0) return;
@@ -238,7 +245,8 @@ export function persistDirectives(
         {
           text: record.evidenceText,
           turn: record.evidenceTurn,
-        }
+        },
+        record.eventTime
       );
     }
   } finally {
@@ -336,6 +344,7 @@ function toPreferenceRecord(row: RawPreferenceRow): PreferenceRecord {
     confidence: row.confidence,
     sourceMsgId: row.source_msg_id,
     createdAt: row.created_at,
+    eventTime: row.event_time ?? row.created_at,
     supersededBy: row.superseded_by,
     supersededAt: row.superseded_at,
   };

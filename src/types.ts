@@ -59,6 +59,7 @@ export interface PreferenceRecord {
   confidence: number;
   sourceMsgId: number;
   createdAt: string;
+  eventTime: string;
   supersededBy: number | null;
   supersededAt: string | null;
 }
@@ -71,6 +72,7 @@ export interface DirectiveRecord {
   value: string;
   sourceMsgId: number | null;
   createdAt: string;
+  eventTime: string;
   confirmedByUser: boolean;
   evidenceText: string | null;
   evidenceTurn: number | null;

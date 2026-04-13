@@ -22,7 +22,11 @@ function makeDirective(id: number, key: string, value: string): DirectiveRecord 
     value,
     sourceMsgId: id,
     createdAt: new Date().toISOString(),
+    eventTime: new Date().toISOString(),
     confirmedByUser: true,
+    evidenceText: null,
+    evidenceTurn: null,
+    lastReferencedAt: null,
     supersededBy: null,
     supersededAt: null,
   };
@@ -41,6 +45,7 @@ function makePreference(
     confidence,
     sourceMsgId: id,
     createdAt: new Date().toISOString(),
+    eventTime: new Date().toISOString(),
     supersededBy: null,
     supersededAt: null,
   };

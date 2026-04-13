@@ -79,9 +79,11 @@ import {
   markDirectivesReferenced,
 } from "../src/storage/directives.js";
 import { loadDecisionScenarios } from "./eval.js";
+import { ArchiveStore } from "../src/storage/archive.js";
+import { TimelineIndex } from "../src/storage/timeline.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.3.1";
+const SERVER_VERSION = "0.4.0";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -130,6 +132,7 @@ const TOOLS: ToolDefinition[] = [
     name: "brain_recall",
     description:
       "Recall active directives (L3) from the project brain. Call at session start. " +
+      "For specific dates, events, or conversation details, use brain_search instead. " +
       "AGENT BEHAVIOR: " +
       "(1) User says 'always/never/from now on/remember that' → call brain_remember directly. " +
       "(2) User corrects you clearly ('不對','wrong','I told you X') → call brain_remember with the correction as a rule. " +
@@ -154,6 +157,31 @@ const TOOLS: ToolDefinition[] = [
           type: "boolean",
           description:
             "Include stored evidence text and turn index for each directive. Default: false.",
+        },
+      },
+    },
+  },
+  {
+    name: "brain_search",
+    description:
+      "Search archived conversation history by time or keyword. Use this when " +
+      "you need specific dates, events, decisions, or full conversation details " +
+      "that are no longer in active context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        when: {
+          type: "string",
+          description:
+            "Date or date range. Examples: '2026-04-06', '2026-04-01..2026-04-07', 'last week', 'last month'.",
+        },
+        query: {
+          type: "string",
+          description: "Keyword search. Case-insensitive.",
+        },
+        limit: {
+          type: "number",
+          description: "Max results to return. Default: 10.",
         },
       },
     },
@@ -451,14 +479,31 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
     const categories = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([typeId, count]) => `${typeId} (${count})`);
-    return textResult(
-      [
-        `You have ${activeBullets.length} active directives across ${categories.length} categories:`,
-        `  ${categories.join(" | ")}`,
-        "Use brain_recall with type=<category> to load specific rules.",
-        "Use brain_recall with mode=all to load everything.",
-      ].join("\n")
-    );
+    const lines = [
+      `You have ${activeBullets.length} active directives across ${categories.length} categories:`,
+      `  ${categories.join(" | ")}`,
+      "Use brain_recall with type=<category> to load specific rules.",
+      "Use brain_recall with mode=all to load everything.",
+    ];
+    const archive = new ArchiveStore(join(projectRoot(), ".squeeze"));
+    const archiveSummary = archive.getSummary();
+    const timeline = new TimelineIndex(join(projectRoot(), ".squeeze"));
+    const timelineBounds = timeline.bounds();
+    if (archiveSummary.count > 0 && timelineBounds) {
+      const recent = timeline
+        .readAll()
+        .slice(-3)
+        .reverse()
+        .map((entry) => `${formatDay(entry.ts)} (${entry.count} msgs: ${entry.topics.join(", ") || "misc"})`)
+        .join(" | ");
+      lines.push("");
+      lines.push(
+        `Archived history: ${archiveSummary.count} conversations (${archiveSummary.earliest.slice(0, 10)} ~ ${archiveSummary.latest.slice(0, 10)})`
+      );
+      lines.push(`Recent: ${recent}`);
+      lines.push("Use brain_search to look up specific dates or topics.");
+    }
+    return textResult(lines.join("\n"));
   }
 
   const selectedBullets =
@@ -473,13 +518,18 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
   }
 
   const evidenceByDirective = withEvidence ? loadDirectiveEvidence(projectRoot()) : new Map();
+  const directiveMetadata = withEvidence ? loadDirectiveMetadata(projectRoot()) : [];
   const renderedBullets = selectedBullets.map((bullet) => {
     if (!withEvidence) return bullet.line;
     const evidence = evidenceByDirective.get(bullet.body);
-    if (!evidence?.evidenceText) return bullet.line;
+    const directive = directiveMetadata.find((item) => item.value === bullet.body);
+    const eventTimeLine = directive?.eventTime
+      ? `\n  event_time: ${directive.eventTime}`
+      : "";
+    if (!evidence?.evidenceText) return `${bullet.line}${eventTimeLine}`;
     const turnText =
       typeof evidence.evidenceTurn === "number" ? ` (turn ${evidence.evidenceTurn})` : "";
-    return `${bullet.line}\n  evidence${turnText}: ${evidence.evidenceText}`;
+    return `${bullet.line}${eventTimeLine}\n  evidence${turnText}: ${evidence.evidenceText}`;
   });
   const conflicts = loadLinks(projectRoot())
     .filter(
@@ -576,6 +626,35 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
   }
 
   return textResult(`error: unknown action "${action}" (expected list|add|approve|reject)`);
+}
+
+function handleBrainSearch(args: Record<string, unknown>): { content: ToolContent[] } {
+  const root = projectRoot();
+  const archive = new ArchiveStore(join(root, ".squeeze"));
+  const summary = archive.getSummary();
+  if (summary.count === 0) {
+    return textResult("No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
+  }
+
+  const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
+    ? Math.max(1, Math.floor(args.limit))
+    : 10;
+  const when = typeof args.when === "string" ? args.when.trim() : "";
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+
+  if (when) {
+    const { from, to, label } = parseDateRange(when);
+    const entries = archive.searchByTime(from, to);
+    return textResult(formatArchiveResults(entries, limit, label));
+  }
+
+  if (query) {
+    const entries = archive.searchByKeyword(query, limit);
+    return textResult(formatArchiveResults(entries, limit, `query: ${query}`));
+  }
+
+  const timeline = new TimelineIndex(join(root, ".squeeze"));
+  return textResult(timeline.toCompactString() || "No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
 }
 
 function handleBrainRetire(args: Record<string, unknown>): { content: ToolContent[] } {
@@ -826,6 +905,9 @@ function handleBrainStatus(): { content: ToolContent[] } {
       : pending > 5 || mergeProposalsPending > 0
         ? "needs_review"
         : "healthy";
+  const archive = new ArchiveStore(join(root, ".squeeze"));
+  const archiveSummary = archive.getSummary();
+  const archiveSizeKb = Math.round(archive.getSizeBytes() / 1024);
   const directiveMetadata = loadDirectiveMetadata(root).filter((directive) =>
     activeBullets.some((bullet) => bullet.body === directive.value)
   );
@@ -860,6 +942,13 @@ function handleBrainStatus(): { content: ToolContent[] } {
     `merge_proposals_pending: ${mergeProposalsPending}`,
     `last_ontology_scan: ${lastOntologyScan ?? "null"}`,
     `health: ${health}`,
+    `archive_entries: ${archiveSummary.count}`,
+    `archive_date_range: ${
+      archiveSummary.count > 0
+        ? `${archiveSummary.earliest.slice(0, 10)} ~ ${archiveSummary.latest.slice(0, 10)}`
+        : "null"
+    }`,
+    `archive_size_kb: ${archiveSizeKb}`,
     `token_budget.total_directives: ${activeDirectiveCount}`,
     `token_budget.estimated_tokens: ${estimatedTokens}`,
     `token_budget.startup_cost_tokens: 100`,
@@ -874,6 +963,93 @@ function handleBrainStatus(): { content: ToolContent[] } {
     parts.push(`actions_by_kind: ${breakdown}`);
   }
   return textResult(parts.join("\n"));
+}
+
+function parseDateRange(input: string): { from: string; to: string; label: string } {
+  const normalized = input.trim().toLowerCase();
+  const today = new Date();
+
+  if (normalized.includes("..")) {
+    const [rawFrom, rawTo] = input.split("..", 2).map((part) => part.trim());
+    return {
+      from: toLocalBoundary(rawFrom, "start"),
+      to: toLocalBoundary(rawTo, "end"),
+      label: `${rawFrom}..${rawTo}`,
+    };
+  }
+
+  if (normalized === "last week") {
+    return {
+      from: shiftLocalDays(today, -7, "start"),
+      to: toLocalBoundary(formatLocalDate(today), "end"),
+      label: "last week",
+    };
+  }
+
+  if (normalized === "last month") {
+    return {
+      from: shiftLocalDays(today, -30, "start"),
+      to: toLocalBoundary(formatLocalDate(today), "end"),
+      label: "last month",
+    };
+  }
+
+  return {
+    from: toLocalBoundary(input, "start"),
+    to: toLocalBoundary(input, "end"),
+    label: input,
+  };
+}
+
+function formatArchiveResults(
+  entries: ReturnType<ArchiveStore["readAll"]>,
+  limit: number,
+  label: string
+): string {
+  if (entries.length === 0) {
+    return `No archived results found for ${label}.`;
+  }
+
+  const selected = entries.slice(0, limit);
+  const blocks = selected.map((entry) => {
+    const stamp = entry.ts.replace("T", " ").slice(0, 16);
+    return `[${stamp}] ${entry.role}: ${entry.content}`;
+  });
+  return `Found ${entries.length} entr${entries.length === 1 ? "y" : "ies"} (${label}):\n\n${blocks.join("\n\n")}`;
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDay(day: string): string {
+  const [_, month, date] = day.split("-");
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${monthNames[Number(month) - 1] ?? day}${date}`;
+}
+
+function shiftLocalDays(date: Date, days: number, edge: "start" | "end"): string {
+  const shifted = new Date(date);
+  shifted.setDate(shifted.getDate() + days);
+  return toLocalBoundary(formatLocalDate(shifted), edge);
+}
+
+function toLocalBoundary(input: string, edge: "start" | "end"): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const [year, month, day] = input.split("-").map(Number);
+    const date = edge === "start"
+      ? new Date(year, month - 1, day, 0, 0, 0, 0)
+      : new Date(year, month - 1, day, 23, 59, 59, 999);
+    return date.toISOString();
+  }
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date(0).toISOString();
+  }
+  return parsed.toISOString();
 }
 
 function handleBrainQuiz(args: Record<string, unknown>): { content: ToolContent[] } {
@@ -925,6 +1101,8 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
       return handleBrainRemember(args);
     case "brain_recall":
       return handleBrainRecall(args);
+    case "brain_search":
+      return handleBrainSearch(args);
     case "brain_candidates":
       return handleBrainCandidates(args);
     case "brain_retire":

@@ -8,10 +8,15 @@ import type { DagStore } from "../storage/dag.js";
 import { summarize } from "./summarizer.js";
 import { Level } from "../types.js";
 import type { StoredMessage } from "../types.js";
+import { randomUUID } from "crypto";
+import { ArchiveStore, estimateArchiveTimestamp, extractTags } from "../storage/archive.js";
 
 export interface CompactorConfig {
   freshTailTurns: number;
   batchTurns: number;
+  archiveStore?: ArchiveStore;
+  sessionId?: string;
+  sessionStart?: string;
 }
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
@@ -49,6 +54,33 @@ export class Compactor {
 
       const maxLevel = Math.max(...batch.map(m => m.level)) as Level;
       const sourceIds = batch.map(m => m.id);
+      const compressedText = summary.overview || summary.abstract || summary.detail;
+
+      if (this.config.archiveStore) {
+        const archiveEntries = batch
+          .filter(
+            (message): message is StoredMessage & { role: "user" | "assistant" } =>
+              (message.role === "user" || message.role === "assistant") &&
+              message.level === Level.Observation
+          )
+          .map((message) => ({
+            id: randomUUID(),
+            ts: estimateArchiveTimestamp(
+              message.createdAt,
+              this.config.sessionStart,
+              message.turnIndex
+            ),
+            ingest_ts: new Date().toISOString(),
+            role: message.role,
+            content: message.content,
+            summary: compressedText,
+            level: message.level,
+            turn_index: message.turnIndex,
+            session_id: this.config.sessionId,
+            tags: extractTags(message.content),
+          }));
+        this.config.archiveStore.append(archiveEntries);
+      }
 
       const nodeId = this.dag.insert({
         parentId: null,

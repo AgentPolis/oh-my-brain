@@ -2,10 +2,10 @@
 
 > **Your personal world model that every AI agent grounds itself in.**
 >
-> v0.3.1 ready to publish. 347/347 tests passing, lint clean, build clean.
-> Self-growing ontology with typed Actions, Directive Types, and Directive Links.
+> v0.4.0 in progress. Archive-backed recall and temporal search are implemented.
+> Pending: final publish prep and live post-release validation.
 >
-> Updated: 2026-04-13
+> Updated: 2026-04-14
 
 ---
 
@@ -69,7 +69,7 @@
   ```bash
   npm publish --access public
   ```
-  確認 `oh-my-brain@0.3.1` 出現在 npmjs.com
+  確認 `oh-my-brain@0.4.0` 出現在 npmjs.com
 
 - [ ] **搶 namespace（低成本高保護）**
   - 註冊 `ohmybrain.dev` domain（~$12/年）

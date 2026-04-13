@@ -134,6 +134,22 @@ describe("DirectiveStore", () => {
     expect(directive.evidenceTurn).toBe(7);
   });
 
+  it("stores directive event_time separately from created_at", () => {
+    const msgId = insertMsg();
+    store.addDirective(
+      "project",
+      "I started the project on March 15, 2026",
+      msgId,
+      false,
+      undefined,
+      "2026-03-15T00:00:00.000Z"
+    );
+
+    const [directive] = store.getActiveDirectives();
+    expect(directive.eventTime).toBe("2026-03-15T00:00:00.000Z");
+    expect(directive.createdAt).toBeTruthy();
+  });
+
   it("existing directives without evidence remain readable", () => {
     const msgId = insertMsg();
     store.addDirective("tone", "be formal", msgId);
@@ -172,6 +188,74 @@ describe("DirectiveStore", () => {
 
     const all = store.getActivePreferences(0);
     expect(all).toHaveLength(2);
+  });
+
+  it("stores preference event_time separately from created_at", () => {
+    const msgId = insertMsg();
+    store.addPreference("stack", "TypeScript", 0.9, msgId, "2026-03-15T00:00:00.000Z");
+
+    const [preference] = store.getActivePreferences();
+    expect(preference.eventTime).toBe("2026-03-15T00:00:00.000Z");
+    expect(preference.createdAt).toBeTruthy();
+  });
+
+  it("migrates existing directives to event_time = created_at", () => {
+    db.close();
+    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+
+    const legacyDb = new Database(TEST_DB);
+    legacyDb.exec(`
+      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO schema_meta (key, value) VALUES ('version', '4');
+      CREATE TABLE directives (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        source_msg_id INTEGER,
+        created_at TEXT NOT NULL,
+        confirmed_by_user INTEGER NOT NULL DEFAULT 0,
+        evidence_text TEXT,
+        evidence_turn INTEGER,
+        last_referenced_at TEXT NOT NULL,
+        superseded_by INTEGER,
+        superseded_at TEXT
+      );
+      CREATE TABLE preferences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        source_msg_id INTEGER,
+        created_at TEXT NOT NULL,
+        superseded_by INTEGER,
+        superseded_at TEXT
+      );
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        level INTEGER NOT NULL DEFAULT 1,
+        content_type TEXT NOT NULL DEFAULT 'conversation',
+        confidence REAL NOT NULL DEFAULT 0.5,
+        turn_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        compacted_by INTEGER
+      );
+    `);
+    legacyDb
+      .prepare(
+        `INSERT INTO directives (key, value, created_at, confirmed_by_user, last_referenced_at)
+         VALUES (?, ?, ?, 0, ?)`
+      )
+      .run("lang", "Always use TypeScript", "2026-04-01T10:00:00.000Z", "2026-04-01T10:00:00.000Z");
+    legacyDb.close();
+
+    db = new Database(TEST_DB);
+    initSchema(db);
+    store = new DirectiveStore(db);
+
+    const [directive] = store.getActiveDirectives();
+    expect(directive.eventTime).toBe("2026-04-01T10:00:00.000Z");
   });
 
   it("fixupSuperseded links old records to the new id", () => {

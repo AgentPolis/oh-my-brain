@@ -6,7 +6,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export function initSchema(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
@@ -54,6 +54,7 @@ export function initSchema(db: Database.Database): void {
       confidence     REAL    NOT NULL DEFAULT 0.5 CHECK(confidence BETWEEN 0.0 AND 1.0),
       source_msg_id  INTEGER REFERENCES messages(id),
       created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      event_time     TEXT    NOT NULL DEFAULT (datetime('now')),
       superseded_by  INTEGER REFERENCES preferences(id),
       superseded_at  TEXT
     );
@@ -65,6 +66,7 @@ export function initSchema(db: Database.Database): void {
       value             TEXT    NOT NULL,
       source_msg_id     INTEGER REFERENCES messages(id),
       created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+      event_time        TEXT    NOT NULL DEFAULT (datetime('now')),
       confirmed_by_user INTEGER NOT NULL DEFAULT 0,
       evidence_text     TEXT,
       evidence_turn     INTEGER,
@@ -129,6 +131,34 @@ export function initSchema(db: Database.Database): void {
       );
     }
     db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '4')`).run();
+  }
+
+  if (Number(currentVersion) < 5) {
+    const directiveCols = (
+      db.prepare(`PRAGMA table_info(directives)`).all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    if (!directiveCols.includes("event_time")) {
+      db.exec(`ALTER TABLE directives ADD COLUMN event_time TEXT`);
+      db.exec(
+        `UPDATE directives
+         SET event_time = COALESCE(event_time, created_at)
+         WHERE event_time IS NULL`
+      );
+    }
+
+    const preferenceCols = (
+      db.prepare(`PRAGMA table_info(preferences)`).all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    if (!preferenceCols.includes("event_time")) {
+      db.exec(`ALTER TABLE preferences ADD COLUMN event_time TEXT`);
+      db.exec(
+        `UPDATE preferences
+         SET event_time = COALESCE(event_time, created_at)
+         WHERE event_time IS NULL`
+      );
+    }
+
+    db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '5')`).run();
   }
 
   // Persist current schema version after migrations.

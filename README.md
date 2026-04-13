@@ -51,8 +51,9 @@ That's the difference between a database and a brain.
 Four importance levels, plus the thing nobody else does:
 
 - **L0 Discard** — "ok", "got it", empty tool output. Dropped immediately.
-- **L1 Observation** — Regular messages and tool results. Compressed as
-  they age out of the fresh tail.
+- **L1 Observation** — Regular messages and tool results. Compressed
+  summaries stay in active context; **full text archived** for
+  on-demand retrieval via `brain_search`. Nothing is ever deleted.
 - **L2 Preference** — Explicit statements like "I prefer tabs" or
   "我比較喜歡 TypeScript". Promoted with confidence scores.
 - **L3 Directive** — Your "always" and "never" rules. **Never compressed.
@@ -86,6 +87,8 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Forgotten rules          | Possible                    | Impossible (L3 immortality)                        |
 | Mutations                | Untracked string edits      | Typed Actions with full provenance + undo         |
 | Auto-learning            | Agent decides silently      | Auto-save when confident, review when unsure      |
+| Compression              | Lossy (data lost)           | Lossless archive — summaries in context, full text searchable |
+| Temporal queries         | Vector similarity only      | Time-indexed archive: `brain_search --when "last Tuesday"` |
 | Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
@@ -175,7 +178,8 @@ Point any MCP client at the `brain-mcp` binary:
 The client gets core tools including:
 
 - `brain_remember` — write a new L3 directive
-- `brain_recall` — read all active directives
+- `brain_recall` — read active directives plus an archive/timeline preview
+- `brain_search` — search archived full-text history by date or keyword
 - `brain_candidates` — list, add, approve, or reject Memory Candidates
 - `brain_retire` — move a stale directive into the archive section
 - `brain_status` — counts and health info

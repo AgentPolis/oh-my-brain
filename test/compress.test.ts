@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join, homedir } from "path";
 import { tmpdir } from "os";
-import { extractMemoryCandidates, extractTextContent, findSessionJsonl, parseSessionEntries, processMessages, writeDirectivesToMemory } from "../cli/compress-core.js";
+import { archiveCompressedMessages, extractEventTime, extractMemoryCandidates, extractTextContent, findSessionJsonl, parseSessionEntries, processMessages, writeDirectivesToMemory } from "../cli/compress-core.js";
 import { Level } from "../src/types.js";
 
 // ── extractTextContent ─────────────────────────────────────────────────────
@@ -65,6 +65,21 @@ describe("extractTextContent", () => {
 
   it("returns empty string for empty array", () => {
     expect(extractTextContent([])).toBe("");
+  });
+});
+
+describe("extractEventTime", () => {
+  it("extracts absolute dates from directive text", () => {
+    const ts = extractEventTime(
+      "I switched to TypeScript on March 15, 2026",
+      "2026-04-10T12:00:00.000Z"
+    );
+    expect(ts).toBe("2026-03-15T00:00:00.000Z");
+  });
+
+  it("falls back cleanly for non-temporal text", () => {
+    const fallback = "2026-04-10T12:00:00.000Z";
+    expect(extractEventTime("Always use strict mode", fallback)).toBe(fallback);
   });
 });
 
@@ -308,6 +323,78 @@ describe("processMessages", () => {
 
     const result = processMessages(entries as any);
     expect(result[0].level).toBe(Level.Observation);
+  });
+});
+
+describe("archiveCompressedMessages", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-archive-run-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("archives compressed L1 messages and rebuilds timeline", () => {
+    const processed = [
+      {
+        index: 1,
+        role: "user" as const,
+        originalText: "Long compressed message about car service and deployment follow-up.",
+        compressedText: "[compressed] car service and deployment",
+        level: Level.Observation,
+        wasCompressed: true,
+      },
+      {
+        index: 2,
+        role: "user" as const,
+        originalText: "Always use TypeScript strict mode",
+        compressedText: "Always use TypeScript strict mode",
+        level: Level.Directive,
+        wasCompressed: false,
+      },
+    ];
+
+    const result = archiveCompressedMessages(tmpDir, processed, {
+      sessionId: "sess-1",
+      sessionStart: "2026-04-06T10:00:00.000Z",
+    });
+
+    expect(result.appended).toBe(1);
+    const archiveText = readFileSync(join(tmpDir, ".squeeze", "archive.jsonl"), "utf8");
+    expect(archiveText).toContain("car service");
+    expect(existsSync(join(tmpDir, ".squeeze", "timeline.json"))).toBe(true);
+  });
+
+  it("dedupes repeated archive writes for the same session and content", () => {
+    const processed = [
+      {
+        index: 1,
+        role: "assistant" as const,
+        originalText: "Repeated compressed note.",
+        compressedText: "[compressed] repeated",
+        level: Level.Observation,
+        wasCompressed: true,
+      },
+    ];
+
+    archiveCompressedMessages(tmpDir, processed, {
+      sessionId: "sess-dup",
+      sessionStart: "2026-04-06T10:00:00.000Z",
+    });
+    const second = archiveCompressedMessages(tmpDir, processed, {
+      sessionId: "sess-dup",
+      sessionStart: "2026-04-06T10:00:00.000Z",
+    });
+
+    expect(second.appended).toBe(0);
+    expect(second.skipped).toBe(1);
+    const lines = readFileSync(join(tmpDir, ".squeeze", "archive.jsonl"), "utf8")
+      .trim()
+      .split("\n");
+    expect(lines).toHaveLength(1);
   });
 });
 
