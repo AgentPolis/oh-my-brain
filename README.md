@@ -60,6 +60,17 @@ Four importance levels, plus the thing nobody else does:
 - **Memory Candidates** — The soft signals: corrections, complaints,
   implicit preferences. They land in a review queue you curate, not the
   bit bucket.
+- **Auto-learning** — High-confidence corrections and repeated
+  preferences are saved automatically (no "remember that" needed).
+  Uncertain signals land in a review queue you curate. Inspired by
+  [Hermes Agent](https://github.com/nousresearch/hermes-agent),
+  but smarter: auto-save when confident, ask when unsure.
+- **Decision Replay** — Evaluates whether your agent makes the same
+  decisions you would. Not retrieval accuracy, decision accuracy.
+  Run `oh-my-brain eval` to benchmark.
+- **~100 token startup** — Lazy loading. `brain_recall` returns a
+  category summary by default, loads full directives on demand.
+  Your brain costs less context than a system prompt.
 
 When you switch from Claude Code to Codex to Cursor, all of the above
 travel with you via a portable `MEMORY.md` file plus an MCP server.
@@ -74,8 +85,12 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Schema                   | Fixed (or none)             | **Self-growing** — system proposes new types as your patterns emerge |
 | Forgotten rules          | Possible                    | Impossible (L3 immortality)                        |
 | Mutations                | Untracked string edits      | Typed Actions with full provenance + undo         |
+| Auto-learning            | Agent decides silently      | Auto-save when confident, review when unsure      |
+| Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
+| Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
 | Trust model              | Black box                   | Plain text `MEMORY.md` you can inspect, edit, commit |
+| vs MemPalace             | 170 token startup, spatial metaphor, claims 96.6% LongMemEval (disputed) | ~100 token startup, importance classification, Decision Replay benchmark, zero disputed claims |
 | Origin                   | Built from spec             | Built from real-use frustration                    |
 
 See [`docs/why-personal-world-model.md`](docs/why-personal-world-model.md)
@@ -157,13 +172,15 @@ Point any MCP client at the `brain-mcp` binary:
 }
 ```
 
-The client gets five tools:
+The client gets core tools including:
 
 - `brain_remember` — write a new L3 directive
 - `brain_recall` — read all active directives
 - `brain_candidates` — list, add, approve, or reject Memory Candidates
 - `brain_retire` — move a stale directive into the archive section
 - `brain_status` — counts and health info
+- `brain_quiz` — generate a decision scenario to test whether the
+  agent thinks like you
 
 ### As an OpenClaw plugin
 
@@ -274,8 +291,11 @@ gets classified as an L3 directive, it will be protected forever. We
 recommend:
 
 1. Treat `MEMORY.md` as code — review it in PRs
-2. Use `brain-candidates` review queue for anything uncertain
-3. Run `brain-audit` regularly to inspect recent memory writes
+2. Rely on the heuristic injection guard for low-hanging prompt-injection,
+   exfiltration, invisible-unicode, and script-tag patterns, but do not
+   treat it as bulletproof
+3. Use `brain-candidates` review queue for anything uncertain
+4. Run `brain-audit` regularly to inspect recent memory writes
 
 ## v0.2 status
 

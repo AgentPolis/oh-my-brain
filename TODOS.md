@@ -2,10 +2,10 @@
 
 > **Your personal world model that every AI agent grounds itself in.**
 >
-> v0.3.0 ready to publish. 307/307 tests passing, lint clean, build clean.
+> v0.3.1 ready to publish. 347/347 tests passing, lint clean, build clean.
 > Self-growing ontology with typed Actions, Directive Types, and Directive Links.
 >
-> Updated: 2026-04-12
+> Updated: 2026-04-13
 
 ---
 
@@ -50,6 +50,8 @@
 
 ## 🚀 Phase 5: Ship (immediate — blocks everything else)
 
+- [x] Hermes-style auto-learning + Decision Replay shipped
+
 - [ ] **Empirical Stop hook verification**
   `cli/debug-hook.js` 已存在。需要你手動做一次：
   1. 在 `~/.claude/settings.json` 加 `"Stop": [{"hooks": [{"type": "command", "command": "node /abs/path/to/debug-hook.js"}]}]`
@@ -67,7 +69,7 @@
   ```bash
   npm publish --access public
   ```
-  確認 `oh-my-brain@0.3.0` 出現在 npmjs.com
+  確認 `oh-my-brain@0.3.1` 出現在 npmjs.com
 
 - [ ] **搶 namespace（低成本高保護）**
   - 註冊 `ohmybrain.dev` domain（~$12/年）

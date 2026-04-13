@@ -1,0 +1,10 @@
+{"type":"assistant","message":{"role":"assistant","content":"Always use Redis here if we hit scaling limits."}}
+{"type":"user","message":{"role":"user","content":"That is just a possibility, not a standing rule."}}
+{"type":"user","message":{"role":"user","content":"Remember that staging uses a separate Stripe account."}}
+{"type":"assistant","message":{"role":"assistant","content":"Noted. I will keep staging and production billing separate."}}
+{"type":"assistant","message":{"role":"assistant","content":"Never deploy on Friday night unless we have rollback coverage."}}
+{"type":"user","message":{"role":"user","content":"For this repo, always ask before changing billing-related environment variables."}}
+{"type":"assistant","message":{"role":"assistant","content":"Understood. I'll ask before changing billing-related environment variables."}}
+{"type":"user","message":{"role":"user","content":"ok"}}
+{"type":"tool","message":{"role":"tool","content":"File created successfully at /tmp/checklist.md"}}
+{"type":"assistant","message":{"role":"assistant","content":"Working on the billing rollout notes now."}}

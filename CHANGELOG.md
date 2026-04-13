@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.3.1] - 2026-04-13
+
+**Hermes-style auto-learning, lazy recall, and Decision Replay.**
+This release adds confidence-based auto-learning, guarded memory writes,
+lazy-loading recall, and a zero-API-key decision benchmark while keeping
+the review queue and portable `MEMORY.md` contract intact.
+
+### Added
+
+- `brain_recall` now appends an agent instruction block that points MCP
+  clients at `brain_remember` and `brain_candidates`.
+- Heuristic injection / exfiltration guard for directive writes and
+  candidate ingestion, with append-only blocked-event audit log at
+  `.squeeze/guard-blocked.jsonl`.
+- Auto-consolidation proposals: mergeable directives are suggested as
+  `MERGE:` Memory Candidates once the active rule set grows past 15.
+- `brain_status` now surfaces guard totals, pending merge proposals,
+  last ontology scan timestamp, health state, and token-budget stats.
+- Directive evidence / provenance tracking in SQLite with optional
+  `brain_recall` evidence output.
+- `brain_recall` lazy-loading modes: `summary` (default), `all`, and
+  `type`, plus contradiction warnings from approved `brain_links`.
+- Decision Replay eval (`oh-my-brain eval`) with editable scenario pool
+  under `eval/decision-replay/scenarios/`.
+- `brain_quiz` MCP tool for in-conversation self-tests using the same
+  Decision Replay scenarios.
+- `oh-my-brain import` to bootstrap rules from `.cursorrules`,
+  `.clinerules`, `CLAUDE.md`, `.github/copilot-instructions.md`, and
+  `.windsurfrules`.
+- `oh-my-brain init` onboarding scan for AI rule files plus project
+  config (`package.json`, `tsconfig.json`) with non-interactive `--yes`.
+
+### Changed
+
+- `brain_recall` now defaults to summary mode instead of returning the
+  full directive list; use `mode=all` for the v0.3.0 behavior.
+- Ontology scans now stamp `.squeeze/last-scan.json` on each run.
+- Directive metadata now tracks `evidence_text`, `evidence_turn`, and
+  `last_referenced_at` in SQLite.
+- CLI / MCP version strings bumped to `0.3.1`.
+
+### Docs
+
+- README updated with auto-learning, Decision Replay, lazy-startup
+  positioning, and the injection-guard FAQ note.
+- `TODOS.md` now marks Hermes-style auto-learning + Decision Replay as
+  shipped.
+
 ## [0.3.0] - 2026-04-08
 
 **Repositioning to a personal world model + the L1/L2/L3 self-growing

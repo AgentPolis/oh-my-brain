@@ -35,11 +35,9 @@ describe("DagStore", () => {
     const nodes = dagStore.getAll();
     expect(nodes).toHaveLength(1);
     expect(nodes[0].abstract).toBe("User asked about authentication");
-    // sourceIds is now JSON with {ids, minTurn, maxTurn}
-    const parsed = JSON.parse(nodes[0].sourceIds as unknown as string);
-    expect(parsed.ids).toEqual([1, 2, 3]);
-    expect(parsed.minTurn).toBe(1);
-    expect(parsed.maxTurn).toBe(3);
+    expect(nodes[0].sourceIds).toEqual([1, 2, 3]);
+    expect(nodes[0].minTurn).toBe(1);
+    expect(nodes[0].maxTurn).toBe(3);
   });
 
   it("getAbstracts returns summaries ordered by creation", () => {

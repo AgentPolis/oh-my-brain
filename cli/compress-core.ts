@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -8,8 +9,9 @@ import {
   renameSync,
 } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { classify } from "../src/triage/classifier.js";
+import { persistDirectives } from "../src/storage/directives.js";
 import { Level } from "../src/types.js";
 import { writeLatestAudit } from "./audit.js";
 import {
@@ -19,7 +21,7 @@ import {
   saveCandidateStore,
 } from "./candidates.js";
 import { scanForTypeCandidates } from "./types-store.js";
-import { scanForLinkCandidates } from "./links-store.js";
+import { jaccard, scanForLinkCandidates, tokenSet } from "./links-store.js";
 import { withLock } from "./lockfile.js";
 
 const STALE_TAIL_COUNT = 20;
@@ -27,6 +29,17 @@ const MIN_COMPRESS_CHARS = 300;
 const HEAD_TAIL_CHARS = 100;
 const CHARS_PER_TOKEN = 4;
 const MAX_DIRECTIVE_CHARS = 500;
+const MERGE_SCAN_THRESHOLD = 15;
+const MERGE_NEGATION_MARKERS = [
+  "never",
+  "don't",
+  "do not",
+  "not",
+  "avoid",
+  "不要",
+  "別",
+  "不",
+];
 
 export const HELP_TEXT = `brain-compress (oh-my-brain)
 
@@ -98,7 +111,43 @@ export interface WriteMetadata {
   source: "claude" | "codex";
   sessionId?: string;
   logPath?: string;
+  guardSource?: "compress" | "mcp" | "candidates";
 }
+
+export interface MergeCandidate {
+  a: string;
+  b: string;
+  merged: string;
+  rationale: string;
+}
+
+interface BlockedEntry {
+  ts: string;
+  text: string;
+  reason: string;
+  session: string;
+  source: "compress" | "mcp" | "candidates";
+}
+
+const INJECTION_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern: /\bignore\s+(all\s+)?previous\s+instructions\b/i,
+    reason: "system prompt override",
+  },
+  { pattern: /\bsystem\s*:\s/i, reason: "system prompt override" },
+  { pattern: /\byou\s+are\s+now\b/i, reason: "system prompt override" },
+  { pattern: /\bact\s+as\b/i, reason: "system prompt override" },
+  { pattern: /\bforget\s+(everything|all|what)\b/i, reason: "system prompt override" },
+  { pattern: /\b(curl|wget|fetch)\s+https?:/i, reason: "exfiltration attempt" },
+  {
+    pattern: /\bsend\s+(to|via)\s+(email|slack|webhook|http)/i,
+    reason: "exfiltration attempt",
+  },
+  { pattern: /[\u200b\u200c\u200d\u2060\ufeff]/, reason: "invisible unicode" },
+  { pattern: /<script\b/i, reason: "html/script injection" },
+  { pattern: /<iframe\b/i, reason: "html/script injection" },
+  { pattern: /javascript:/i, reason: "html/script injection" },
+];
 
 function stringifyUnknown(value: unknown): string {
   if (typeof value === "string") return value;
@@ -114,6 +163,54 @@ function stringifyUnknown(value: unknown): string {
 function truncateInline(text: string, maxChars = 300): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}…[truncated ${text.length - maxChars} chars]`;
+}
+
+export function scanForInjection(text: string): { safe: boolean; reason?: string } {
+  for (const entry of INJECTION_PATTERNS) {
+    if (entry.pattern.test(text)) {
+      return { safe: false, reason: entry.reason };
+    }
+  }
+  return { safe: true };
+}
+
+export function logBlocked(squeezePath: string, entry: BlockedEntry): void {
+  mkdirSync(squeezePath, { recursive: true });
+  appendFileSync(join(squeezePath, "guard-blocked.jsonl"), `${JSON.stringify(entry)}\n`);
+}
+
+function evaluateInjectionGuard(
+  projectRoot: string,
+  text: string,
+  sessionId: string | undefined,
+  source: "compress" | "mcp" | "candidates",
+  warn: boolean
+): { safe: boolean } {
+  try {
+    const result = scanForInjection(text);
+    if (result.safe) return { safe: true };
+
+    logBlocked(join(projectRoot, ".squeeze"), {
+      ts: new Date().toISOString(),
+      text,
+      reason: result.reason ?? "blocked",
+      session: sessionId ?? "unknown",
+      source,
+    });
+    if (warn) {
+      process.stderr.write(
+        `[brain] warning: blocked directive "${truncateInline(text, 120)}" (${result.reason ?? "blocked"})\n`
+      );
+    }
+    return { safe: false };
+  } catch (err) {
+    if (warn) {
+      process.stderr.write(
+        `[brain] warning: injection guard failed for "${truncateInline(text, 120)}": ${(err as Error).message}\n`
+      );
+    }
+    return { safe: true };
+  }
 }
 
 function flattenToolResultContent(content: string | ContentBlock[] | undefined): string {
@@ -360,7 +457,19 @@ export function appendDirectivesToMemory(
   memoryPath: string,
   metadata?: WriteMetadata
 ): number {
-  const cleaned = directiveTexts.map((t) => t.trim()).filter((t) => t.length > 0);
+  const projectRoot = dirname(memoryPath);
+  const cleaned = directiveTexts
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .filter((text) =>
+      evaluateInjectionGuard(
+        projectRoot,
+        text,
+        metadata?.sessionId,
+        metadata?.guardSource ?? "compress",
+        true
+      ).safe
+    );
   if (cleaned.length === 0) return 0;
 
   // The whole read-dedup-write sequence must run under a lock. Without the
@@ -522,12 +631,110 @@ export function writeDirectivesToMemory(
 ): number {
   const directives = processed
     .filter((m) => m.level === Level.Directive)
-    .map((m) => m.originalText.trim())
-    .filter((text) => text.length > 0);
+    .map((m) => ({
+      directiveText: m.originalText.trim(),
+      evidenceText: m.originalText,
+      evidenceTurn: m.index,
+    }))
+    .filter((record) => record.directiveText.length > 0);
+
+  const existingDirectives = existsSync(memoryPath)
+    ? parseExistingDirectives(readFileSync(memoryPath, "utf8"))
+    : new Set<string>();
+  const newDirectiveRecords = directives.filter(
+    (record) => !existingDirectives.has(record.directiveText)
+  );
 
   // Delegate to the shared append path so both session-driven writes and
   // candidate-approval writes go through exactly the same dedup + format.
-  return appendDirectivesToMemory(directives, memoryPath, metadata);
+  const written = appendDirectivesToMemory(
+    directives.map((record) => record.directiveText),
+    memoryPath,
+    metadata
+  );
+
+  if (written > 0) {
+    const activeDirectives = parseExistingDirectives(readFileSync(memoryPath, "utf8"));
+    persistDirectives(dirname(memoryPath), newDirectiveRecords.filter((record) =>
+      activeDirectives.has(record.directiveText)
+    ));
+  }
+
+  return written;
+}
+
+function hasMergeNegation(text: string): boolean {
+  const lower = text.toLowerCase();
+  return MERGE_NEGATION_MARKERS.some((marker) => lower.includes(marker));
+}
+
+export function detectMergeCandidates(
+  directiveBodies: string[],
+  _options?: { embeddings?: Map<string, number[]> }
+): MergeCandidate[] {
+  const merges: MergeCandidate[] = [];
+  const seen = new Set<string>();
+  const tokens = directiveBodies.map((directive) => tokenSet(directive));
+
+  for (let i = 0; i < directiveBodies.length; i += 1) {
+    for (let j = i + 1; j < directiveBodies.length; j += 1) {
+      const first = directiveBodies[i];
+      const second = directiveBodies[j];
+      if (hasMergeNegation(first) || hasMergeNegation(second)) continue;
+
+      const firstTokens = tokens[i];
+      const secondTokens = tokens[j];
+      const similarity = jaccard(firstTokens, secondTokens);
+      if (similarity < 0.5) continue;
+
+      const firstSubset = Array.from(firstTokens).every((token) => secondTokens.has(token));
+      const secondSubset = Array.from(secondTokens).every((token) => firstTokens.has(token));
+      const strictSubset =
+        (firstSubset && firstTokens.size < secondTokens.size) ||
+        (secondSubset && secondTokens.size < firstTokens.size);
+      if (!strictSubset) continue;
+
+      const shorter = first.length <= second.length ? first : second;
+      const longer = shorter === first ? second : first;
+      const id = `${shorter}::${longer}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      merges.push({
+        a: shorter,
+        b: longer,
+        merged: longer,
+        rationale: `subset token overlap with ${(similarity * 100).toFixed(0)}% Jaccard similarity`,
+      });
+    }
+  }
+
+  return merges;
+}
+
+export function enqueueMergeCandidates(
+  projectRoot: string,
+  directiveBodies: string[],
+  sessionId?: string
+): ReturnType<typeof ingestCandidates> {
+  if (directiveBodies.length <= MERGE_SCAN_THRESHOLD) return [];
+
+  const merges = detectMergeCandidates(directiveBodies);
+  if (merges.length === 0) return [];
+
+  const candidateStore = loadCandidateStore(projectRoot);
+  const created = ingestCandidates(
+    candidateStore,
+    merges.map((merge) => `MERGE: "${merge.a}" → "${merge.b}" (retire the shorter one)`),
+    {
+      source: "claude",
+      sessionId,
+      projectRoot,
+    }
+  );
+  if (created.length > 0) {
+    saveCandidateStore(projectRoot, candidateStore);
+  }
+  return created;
 }
 
 export function appendProjectRunLog(
@@ -548,7 +755,7 @@ export async function main() {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("oh-my-brain 0.3.0\n");
+    process.stdout.write("oh-my-brain 0.3.1\n");
     return;
   }
 
@@ -590,6 +797,7 @@ export async function main() {
   const newCandidates = ingestCandidates(candidateStore, memoryCandidates, {
     source: "claude",
     sessionId,
+    projectRoot: cwd,
   });
   if (memoryCandidates.length > 0) {
     saveCandidateStore(cwd, candidateStore);
@@ -658,6 +866,13 @@ export async function main() {
     if (newLinkCandidates.length > 0) {
       process.stderr.write(
         `[brain] ${newLinkCandidates.length} new directive link${newLinkCandidates.length === 1 ? "" : "s"} proposed. Run 'brain-candidates list-links' to review.\n`
+      );
+    }
+
+    const newMergeCandidates = enqueueMergeCandidates(cwd, directiveBodies, sessionId);
+    if (newMergeCandidates.length > 0) {
+      process.stderr.write(
+        `[brain] ${newMergeCandidates.length} merge proposal${newMergeCandidates.length === 1 ? "" : "s"}. Run 'brain-candidates list'.\n`
       );
     }
   } catch (err) {

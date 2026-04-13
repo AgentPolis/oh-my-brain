@@ -74,16 +74,53 @@ interface RawRow {
   created_at: string;
 }
 
+interface SourceMeta {
+  ids: number[];
+  minTurn: number | null;
+  maxTurn: number | null;
+}
+
 function toNode(row: RawRow): DagNode {
+  const sourceMeta = parseSourceMeta(row.source_ids);
   return {
     id: row.id,
     parentId: row.parent_id,
     abstract: row.abstract,
     overview: row.overview,
     detail: row.detail,
-    // Keep raw JSON string so callers can parse the {ids, minTurn, maxTurn} envelope
-    sourceIds: row.source_ids as unknown as number[],
+    sourceIds: sourceMeta.ids,
+    minTurn: sourceMeta.minTurn,
+    maxTurn: sourceMeta.maxTurn,
     level: row.level as Level,
     createdAt: row.created_at,
   };
+}
+
+function parseSourceMeta(raw: string): SourceMeta {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+
+    // Backward compatibility: older rows may store source_ids as plain number[].
+    if (Array.isArray(parsed)) {
+      return {
+        ids: parsed.filter((v): v is number => typeof v === "number"),
+        minTurn: null,
+        maxTurn: null,
+      };
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const asObj = parsed as Record<string, unknown>;
+      const ids = Array.isArray(asObj.ids)
+        ? asObj.ids.filter((v): v is number => typeof v === "number")
+        : [];
+      const minTurn = typeof asObj.minTurn === "number" ? asObj.minTurn : null;
+      const maxTurn = typeof asObj.maxTurn === "number" ? asObj.maxTurn : null;
+      return { ids, minTurn, maxTurn };
+    }
+  } catch {
+    // no-op: fall through to safe defaults
+  }
+
+  return { ids: [], minTurn: null, maxTurn: null };
 }

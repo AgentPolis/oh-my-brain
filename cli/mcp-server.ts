@@ -73,9 +73,15 @@ import {
   resolveLinkCandidateId,
 } from "./links-store.js";
 import { isDirectEntry } from "./is-main.js";
+import {
+  loadDirectiveEvidence,
+  loadDirectiveMetadata,
+  markDirectivesReferenced,
+} from "../src/storage/directives.js";
+import { loadDecisionScenarios } from "./eval.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.3.0";
+const SERVER_VERSION = "0.3.1";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -123,12 +129,33 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "brain_recall",
     description:
-      "Recall every active directive (L3) currently stored in the project " +
-      "brain. Returns the raw MEMORY.md bullet bodies. Use this at the " +
-      "start of a session to load the user's persistent rules.",
+      "Recall active directives (L3) from the project brain. Call at session start. " +
+      "AGENT BEHAVIOR: " +
+      "(1) User says 'always/never/from now on/remember that' → call brain_remember directly. " +
+      "(2) User corrects you clearly ('不對','wrong','I told you X') → call brain_remember with the correction as a rule. " +
+      "(3) User repeats same preference 2+ times → call brain_remember. " +
+      "(4) Uncertain soft signals → call brain_candidates action=add. " +
+      "(5) Reusable lesson after 5+ tool calls → brain_candidates action=add. " +
+      "(6) Significant decision (architecture/scope/tradeoff) → brain_candidates action=add text=DECISION:<situation>→<choice>→<rationale>. " +
+      "(7) Never write MEMORY.md directly. High-confidence → brain_remember. Uncertain → brain_candidates. Silent, no permission needed.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        mode: {
+          type: "string",
+          description: "summary (default), all, or type.",
+          enum: ["summary", "all", "type"],
+        },
+        type: {
+          type: "string",
+          description: "Directive type name to load when mode=type.",
+        },
+        with_evidence: {
+          type: "boolean",
+          description:
+            "Include stored evidence text and turn index for each directive. Default: false.",
+        },
+      },
     },
   },
   {
@@ -190,6 +217,30 @@ const TOOLS: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: "brain_quiz",
+    description:
+      "Generate a decision scenario to test whether the agent has learned " +
+      "the user's preferences. Returns a situation, options, expected answer, " +
+      "and relevant directives so the user can watch the reasoning live.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: [
+            "architecture",
+            "scope",
+            "security",
+            "tradeoff",
+            "operations",
+            "random",
+          ],
+          description: "Scenario category. Default: random.",
+        },
+      },
     },
   },
   {
@@ -323,6 +374,37 @@ function textResult(text: string): { content: ToolContent[] } {
   return { content: [{ type: "text", text }] };
 }
 
+function parseActiveDirectiveBullets(content: string): Array<{ line: string; body: string }> {
+  const lines = content.split("\n");
+  const bullets: Array<{ line: string; body: string }> = [];
+  let inArchive = false;
+  const ARCHIVE_HEADING =
+    "## oh-my-brain archive (superseded directives — do not use)";
+
+  for (const line of lines) {
+    if (line.trim() === ARCHIVE_HEADING) {
+      inArchive = true;
+      continue;
+    }
+    if (inArchive) {
+      if (/^## /.test(line) && line.trim() !== ARCHIVE_HEADING) {
+        inArchive = false;
+      } else {
+        continue;
+      }
+    }
+    const match = line.match(/^-\s+\[[^\]]*\]\s+(.+)$/);
+    if (match) {
+      bullets.push({ line, body: match[1].trim() });
+    }
+  }
+
+  return bullets;
+}
+
+// Agent instruction moved to brain_recall tool description to save ~300 tokens
+// per brain_recall response. MCP clients read tool descriptions at session start.
+
 function handleBrainRemember(args: Record<string, unknown>): { content: ToolContent[] } {
   const text = typeof args.text === "string" ? args.text.trim() : "";
   if (!text) {
@@ -346,44 +428,79 @@ function handleBrainRemember(args: Record<string, unknown>): { content: ToolCont
   );
 }
 
-function handleBrainRecall(): { content: ToolContent[] } {
+function handleBrainRecall(args: Record<string, unknown>): { content: ToolContent[] } {
+  const mode = typeof args.mode === "string" ? args.mode : "summary";
+  const requestedType = typeof args.type === "string" ? args.type : "";
+  const withEvidence = args.with_evidence === true;
   const path = memoryPath();
   if (!existsSync(path)) {
     return textResult("no directives yet — MEMORY.md does not exist");
   }
   const content = readFileSync(path, "utf8");
+  const activeBullets = parseActiveDirectiveBullets(content);
 
-  // Extract active bullets (skip the archive section). Use the same
-  // parsing semantics as parseExistingDirectives but also return the
-  // raw bullet lines so the agent can see provenance tags.
-  const lines = content.split("\n");
-  const bullets: string[] = [];
-  let inArchive = false;
-  const ARCHIVE_HEADING =
-    "## oh-my-brain archive (superseded directives — do not use)";
-
-  for (const line of lines) {
-    if (line.trim() === ARCHIVE_HEADING) {
-      inArchive = true;
-      continue;
-    }
-    if (inArchive) {
-      if (/^## /.test(line) && line.trim() !== ARCHIVE_HEADING) {
-        inArchive = false;
-      } else {
-        continue;
-      }
-    }
-    if (/^-\s+\[[^\]]*\]\s+/.test(line)) {
-      bullets.push(line);
-    }
-  }
-
-  if (bullets.length === 0) {
+  if (activeBullets.length === 0) {
     return textResult("no active directives found in MEMORY.md");
   }
+  if (mode === "summary") {
+    const counts = new Map<string, number>();
+    for (const bullet of activeBullets) {
+      const typeId = classifyDirective(projectRoot(), bullet.body).typeId;
+      counts.set(typeId, (counts.get(typeId) ?? 0) + 1);
+    }
+    const categories = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([typeId, count]) => `${typeId} (${count})`);
+    return textResult(
+      [
+        `You have ${activeBullets.length} active directives across ${categories.length} categories:`,
+        `  ${categories.join(" | ")}`,
+        "Use brain_recall with type=<category> to load specific rules.",
+        "Use brain_recall with mode=all to load everything.",
+      ].join("\n")
+    );
+  }
+
+  const selectedBullets =
+    mode === "type"
+      ? activeBullets.filter(
+          (bullet) => classifyDirective(projectRoot(), bullet.body).typeId === requestedType
+        )
+      : activeBullets;
+
+  if (selectedBullets.length === 0) {
+    return textResult(`no active directives found for type "${requestedType}"`);
+  }
+
+  const evidenceByDirective = withEvidence ? loadDirectiveEvidence(projectRoot()) : new Map();
+  const renderedBullets = selectedBullets.map((bullet) => {
+    if (!withEvidence) return bullet.line;
+    const evidence = evidenceByDirective.get(bullet.body);
+    if (!evidence?.evidenceText) return bullet.line;
+    const turnText =
+      typeof evidence.evidenceTurn === "number" ? ` (turn ${evidence.evidenceTurn})` : "";
+    return `${bullet.line}\n  evidence${turnText}: ${evidence.evidenceText}`;
+  });
+  const conflicts = loadLinks(projectRoot())
+    .filter(
+      (link) =>
+        link.kind === "contradicts" &&
+        selectedBullets.some((bullet) => bullet.body === link.fromDirective || bullet.body === link.toDirective)
+    )
+    .slice(0, 3)
+    .map(
+      (link) =>
+        `⚠ CONFLICT: "${link.fromDirective}" may contradict "${link.toDirective}" (detected by brain_links)`
+    );
+  markDirectivesReferenced(
+    projectRoot(),
+    selectedBullets.map((bullet) => bullet.body)
+  );
+  const label = mode === "type" ? `Active directives for ${requestedType}` : "Active directives";
   return textResult(
-    `Active directives (${bullets.length}):\n\n${bullets.join("\n")}`
+    `${label} (${selectedBullets.length}):\n\n${renderedBullets.join("\n")}${
+      conflicts.length > 0 ? `\n\n${conflicts.join("\n")}` : ""
+    }`
   );
 }
 
@@ -409,7 +526,10 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
   if (action === "add") {
     const text = typeof args.text === "string" ? args.text.trim() : "";
     if (!text) return textResult("error: text is required for action=add");
-    const created = ingestCandidates(store, [text], { source: "unknown" });
+    const created = ingestCandidates(store, [text], {
+      source: "unknown",
+      projectRoot: root,
+    });
     saveCandidateStore(root, store);
     if (created.length === 0) {
       return textResult(
@@ -675,6 +795,59 @@ function handleBrainStatus(): { content: ToolContent[] } {
   for (const a of actionLog) {
     actionsByKind.set(a.kind, (actionsByKind.get(a.kind) ?? 0) + 1);
   }
+  const memoryText = memoryExists ? readFileSync(mPath, "utf8") : "";
+  const activeBullets = parseActiveDirectiveBullets(memoryText);
+  const activeDirectiveCount = activeBullets.length;
+  const estimatedTokens = Math.round(
+    activeBullets.reduce((sum, bullet) => sum + bullet.body.length, 0) / 4
+  );
+  const guardLogPath = join(root, ".squeeze", "guard-blocked.jsonl");
+  const guardBlockedTotal = existsSync(guardLogPath)
+    ? readFileSync(guardLogPath, "utf8")
+        .split("\n")
+        .filter((line) => line.trim().length > 0).length
+    : 0;
+  const mergeProposalsPending = listCandidates(store, { status: "pending" }).filter((candidate) =>
+    candidate.text.startsWith("MERGE:")
+  ).length;
+  const lastScanPath = join(root, ".squeeze", "last-scan.json");
+  let lastOntologyScan: string | null = null;
+  if (existsSync(lastScanPath)) {
+    try {
+      lastOntologyScan =
+        (JSON.parse(readFileSync(lastScanPath, "utf8")) as { ts?: string }).ts ?? null;
+    } catch {
+      lastOntologyScan = null;
+    }
+  }
+  const health =
+    activeDirectiveCount > 30
+      ? "bloated"
+      : pending > 5 || mergeProposalsPending > 0
+        ? "needs_review"
+        : "healthy";
+  const directiveMetadata = loadDirectiveMetadata(root).filter((directive) =>
+    activeBullets.some((bullet) => bullet.body === directive.value)
+  );
+  const staleDirective =
+    directiveMetadata.length > 0
+      ? directiveMetadata.reduce((oldest, directive) => {
+          const oldestTime = Date.parse(oldest.lastReferencedAt ?? oldest.createdAt);
+          const directiveTime = Date.parse(directive.lastReferencedAt ?? directive.createdAt);
+          return directiveTime < oldestTime ? directive : oldest;
+        })
+      : null;
+  const staleAgeDays =
+    staleDirective !== null
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.now() -
+              Date.parse(staleDirective.lastReferencedAt ?? staleDirective.createdAt)) /
+              (1000 * 60 * 60 * 24)
+          )
+        )
+      : 0;
 
   const parts = [
     `project: ${root}`,
@@ -683,6 +856,16 @@ function handleBrainStatus(): { content: ToolContent[] } {
     `candidates_pending: ${pending}`,
     `candidates_total: ${total}`,
     `actions_total: ${actionLog.length}`,
+    `guard_blocked_total: ${guardBlockedTotal}`,
+    `merge_proposals_pending: ${mergeProposalsPending}`,
+    `last_ontology_scan: ${lastOntologyScan ?? "null"}`,
+    `health: ${health}`,
+    `token_budget.total_directives: ${activeDirectiveCount}`,
+    `token_budget.estimated_tokens: ${estimatedTokens}`,
+    `token_budget.startup_cost_tokens: 100`,
+    `token_budget.full_load_tokens: ${estimatedTokens}`,
+    `token_budget.stalest_directive: ${staleDirective?.value ?? "null"}`,
+    `token_budget.stalest_age_days: ${staleAgeDays}`,
   ];
   if (actionLog.length > 0) {
     const breakdown = Array.from(actionsByKind.entries())
@@ -693,18 +876,63 @@ function handleBrainStatus(): { content: ToolContent[] } {
   return textResult(parts.join("\n"));
 }
 
+function handleBrainQuiz(args: Record<string, unknown>): { content: ToolContent[] } {
+  const path = memoryPath();
+  if (!existsSync(path)) {
+    return textResult(
+      "Not enough directives to generate meaningful scenarios. Use oh-my-brain for a few sessions first."
+    );
+  }
+
+  const directives = parseActiveDirectiveBullets(readFileSync(path, "utf8"));
+  if (directives.length < 3) {
+    return textResult(
+      "Not enough directives to generate meaningful scenarios. Use oh-my-brain for a few sessions first."
+    );
+  }
+
+  const category = typeof args.category === "string" ? args.category : "random";
+  const scenarios = loadDecisionScenarios(projectRoot());
+  const candidates =
+    category === "random"
+      ? scenarios
+      : scenarios.filter((scenario) => scenario.category === category);
+  if (candidates.length === 0) {
+    return textResult(`error: no quiz scenarios available for category "${category}"`);
+  }
+
+  const scenario = candidates[Math.floor(Math.random() * candidates.length)];
+  return textResult(
+    JSON.stringify(
+      {
+        scenario: scenario.situation,
+        options: scenario.options,
+        hint: "Think about which directives apply here.",
+        expected: scenario.expected_decision,
+        relevant_directives: scenario.relevant_directives,
+        instructions:
+          "Answer the scenario above based on the user's rules you have loaded. Then reveal the expected answer and compare.",
+      },
+      null,
+      2
+    )
+  );
+}
+
 function callTool(name: string, args: Record<string, unknown>): { content: ToolContent[] } {
   switch (name) {
     case "brain_remember":
       return handleBrainRemember(args);
     case "brain_recall":
-      return handleBrainRecall();
+      return handleBrainRecall(args);
     case "brain_candidates":
       return handleBrainCandidates(args);
     case "brain_retire":
       return handleBrainRetire(args);
     case "brain_status":
       return handleBrainStatus();
+    case "brain_quiz":
+      return handleBrainQuiz(args);
     case "brain_undo_last":
       return handleBrainUndoLast();
     case "brain_why":

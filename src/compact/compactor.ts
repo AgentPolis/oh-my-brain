@@ -43,6 +43,10 @@ export class Compactor {
 
     for (const batch of batches) {
       const summary = summarize(batch);
+
+      // Skip empty summaries — summarizer may produce nothing for trivial batches
+      if (!summary.abstract && !summary.overview) continue;
+
       const maxLevel = Math.max(...batch.map(m => m.level)) as Level;
       const sourceIds = batch.map(m => m.id);
 

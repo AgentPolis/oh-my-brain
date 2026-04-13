@@ -3,6 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { handleRequest } from "../cli/mcp-server.js";
+import { writeDirectivesToMemory } from "../cli/compress-core.js";
+import { Level } from "../src/types.js";
+import { saveLinks } from "../cli/links-store.js";
 
 describe("MCP server", () => {
   let tmp: string;
@@ -93,21 +96,76 @@ describe("MCP server", () => {
     expect(occurrences.length).toBe(1);
   });
 
-  it("brain_recall returns all active directives", () => {
+  it("brain_recall returns a summary by default", () => {
     callTool("brain_remember", { text: "Always validate input" });
     callTool("brain_remember", { text: "Never expose internal errors" });
 
     const response = callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
-    expect(text).toContain("Always validate input");
-    expect(text).toContain("Never expose internal errors");
-    expect(text).toContain("Active directives (2)");
+    expect(text).toContain("You have 2 active directives across");
+    expect(text).toContain("Use brain_recall with mode=all to load everything.");
+    // Agent instruction moved to tool description — not in response body
   });
 
   it("brain_recall returns empty state when no directives exist", () => {
     const response = callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toMatch(/no directives|MEMORY\.md does not exist/);
+  });
+
+  it("brain_recall tool description contains agent behavior instructions", () => {
+    // Instruction is now in the tool description, not the response
+    const listResponse = handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const tools = (listResponse.result as { tools: { name: string; description: string }[] }).tools;
+    const recallTool = tools.find((t) => t.name === "brain_recall");
+    expect(recallTool!.description).toContain("brain_remember");
+    expect(recallTool!.description).toContain("brain_candidates");
+    expect(recallTool!.description).toContain("AGENT BEHAVIOR");
+  });
+
+  it("brain_recall mode=all returns the full directive list", () => {
+    callTool("brain_remember", { text: "Always validate input" });
+    callTool("brain_remember", { text: "Never expose internal errors" });
+
+    const response = callTool("brain_recall", { mode: "all" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Always validate input");
+    expect(text).toContain("Never expose internal errors");
+    expect(text).toContain("Active directives (2)");
+  });
+
+  it("brain_recall mode=type filters by directive type", () => {
+    callTool("brain_remember", { text: "Always use TypeScript strict mode" });
+    callTool("brain_remember", { text: "Reply in concise English" });
+
+    const response = callTool("brain_recall", {
+      mode: "type",
+      type: "CodingPreference",
+    });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Always use TypeScript strict mode");
+    expect(text).not.toContain("Reply in concise English");
+  });
+
+  it("brain_recall with_evidence includes stored provenance", () => {
+    writeDirectivesToMemory(
+      [
+        {
+          index: 3,
+          role: "user",
+          originalText: "Always use TypeScript",
+          compressedText: "Always use TypeScript",
+          level: Level.Directive,
+          wasCompressed: false,
+        },
+      ],
+      join(tmp, "MEMORY.md"),
+      { source: "claude", sessionId: "sess-evidence" }
+    );
+
+    const response = callTool("brain_recall", { mode: "all", with_evidence: true });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("evidence (turn 3): Always use TypeScript");
   });
 
   it("brain_candidates supports full add → list → approve flow", () => {
@@ -183,7 +241,7 @@ describe("MCP server", () => {
     expect(memoryContent.slice(0, archiveIdx)).not.toContain("Always use Python 3.11");
   });
 
-  it("brain_status returns counts", () => {
+  it("brain_status returns counts and health fields", () => {
     callTool("brain_remember", { text: "test directive" });
     callTool("brain_candidates", { action: "add", text: "pending candidate" });
 
@@ -192,6 +250,82 @@ describe("MCP server", () => {
     expect(text).toContain("memory_exists: true");
     expect(text).toContain("candidates_pending: 1");
     expect(text).toContain("candidates_total: 1");
+    expect(text).toContain("guard_blocked_total: 0");
+    expect(text).toContain("merge_proposals_pending: 0");
+    expect(text).toContain("last_ontology_scan:");
+    expect(text).toContain("health: healthy");
+    expect(text).toContain("token_budget.total_directives: 1");
+  });
+
+  it("brain_status reports needs_review when pending candidates exceed threshold", () => {
+    for (let i = 0; i < 6; i += 1) {
+      callTool("brain_candidates", { action: "add", text: `pending candidate ${i}` });
+    }
+
+    const status = callTool("brain_status");
+    const text = (status.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("health: needs_review");
+  });
+
+  it("brain_status reports bloated when active directives exceed 30", () => {
+    for (let i = 0; i < 31; i += 1) {
+      callTool("brain_remember", { text: `Always keep rule ${i}` });
+    }
+
+    const status = callTool("brain_status");
+    const text = (status.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("health: bloated");
+  });
+
+  it("brain_recall shows conflict warnings from approved contradicts links", () => {
+    callTool("brain_remember", { text: "Always use tabs" });
+    callTool("brain_remember", { text: "Follow project conventions" });
+    saveLinks(tmp, [
+      {
+        id: "link-1",
+        fromDirective: "Always use tabs",
+        toDirective: "Follow project conventions",
+        kind: "contradicts",
+        addedAt: new Date().toISOString(),
+        origin: "user",
+      },
+    ]);
+
+    const response = callTool("brain_recall", { mode: "all" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain('⚠ CONFLICT: "Always use tabs" may contradict "Follow project conventions"');
+  });
+
+  it("brain_quiz returns an error until enough directives exist", () => {
+    callTool("brain_remember", { text: "Always use TypeScript" });
+    callTool("brain_remember", { text: "Never force-push to main" });
+
+    const response = callTool("brain_quiz", { category: "random" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain(
+      "Not enough directives to generate meaningful scenarios. Use oh-my-brain for a few sessions first."
+    );
+  });
+
+  it("brain_quiz returns a scenario payload when enough directives exist", () => {
+    callTool("brain_remember", { text: "Always use TypeScript strict mode" });
+    callTool("brain_remember", { text: "Never force-push to main" });
+    callTool("brain_remember", { text: "Always review before merging" });
+
+    const response = callTool("brain_quiz", { category: "random" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    const payload = JSON.parse(text) as {
+      scenario: string;
+      options: string[];
+      hint: string;
+      expected: string;
+      relevant_directives: string[];
+      instructions: string;
+    };
+    expect(payload.scenario).toBeTruthy();
+    expect(payload.options.length).toBeGreaterThan(0);
+    expect(payload.expected).toBeTruthy();
+    expect(payload.relevant_directives.length).toBeGreaterThan(0);
   });
 
   it("unknown method returns JSON-RPC error", () => {

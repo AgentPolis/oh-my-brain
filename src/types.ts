@@ -69,9 +69,12 @@ export interface DirectiveRecord {
   id: number;
   key: string;
   value: string;
-  sourceMsgId: number;
+  sourceMsgId: number | null;
   createdAt: string;
   confirmedByUser: boolean;
+  evidenceText: string | null;
+  evidenceTurn: number | null;
+  lastReferencedAt: string | null;
   supersededBy: number | null;
   supersededAt: string | null;
 }

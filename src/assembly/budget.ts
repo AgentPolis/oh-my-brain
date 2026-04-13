@@ -79,13 +79,25 @@ export function allocateBudget(
 }
 
 /**
- * Rough token count estimate.
+ * Heuristic token estimate (fallback when no runtime tokenizer available).
  * ~4 chars per token for English, ~1.5 tokens per CJK character.
  */
-export function estimateTokens(text: string): number {
-  // Count CJK characters
+export function heuristicTokenCount(text: string): number {
   const cjkCount = (text.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
   const nonCjkLength = text.length - cjkCount;
-
   return Math.ceil(nonCjkLength / 4 + cjkCount * 1.5);
+}
+
+/**
+ * Active token counter. Defaults to heuristic.
+ * Call `setTokenCounter()` to inject OpenClaw runtime tokenizer.
+ */
+let _countTokens = heuristicTokenCount;
+
+export function setTokenCounter(counter: (text: string) => number): void {
+  _countTokens = counter;
+}
+
+export function estimateTokens(text: string): number {
+  return _countTokens(text);
 }

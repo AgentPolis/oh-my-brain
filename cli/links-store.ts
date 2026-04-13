@@ -190,7 +190,7 @@ const LINK_STOPWORDS = new Set([
   "也", "都", "的", "了", "在", "和", "與", "或", "是", "不", "有", "我", "你", "他",
 ]);
 
-function tokenSet(text: string): Set<string> {
+export function tokenSet(text: string): Set<string> {
   return new Set(
     text
       .toLowerCase()
@@ -199,7 +199,7 @@ function tokenSet(text: string): Set<string> {
   );
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;
   let intersection = 0;
   for (const tok of a) if (b.has(tok)) intersection += 1;
@@ -470,6 +470,11 @@ export function scanForLinkCandidates(
   projectRoot: string,
   directiveBodies: string[]
 ): LinkCandidateRecord[] {
+  const stampPath = join(projectRoot, ".squeeze", "last-scan.json");
+  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  writeFileSync(`${stampPath}.tmp`, JSON.stringify({ ts: new Date().toISOString() }, null, 2));
+  renameSync(`${stampPath}.tmp`, stampPath);
+
   if (directiveBodies.length < 2) return [];
 
   const proposals = detectLinkProposals(directiveBodies);

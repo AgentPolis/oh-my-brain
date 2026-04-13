@@ -499,6 +499,11 @@ export function scanForTypeCandidates(
   directiveBodies: string[],
   threshold = 3
 ): TypeCandidateRecord[] {
+  const stampPath = join(projectRoot, ".squeeze", "last-scan.json");
+  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  writeFileSync(`${stampPath}.tmp`, JSON.stringify({ ts: new Date().toISOString() }, null, 2));
+  renameSync(`${stampPath}.tmp`, stampPath);
+
   // Find uncategorized directives
   const uncategorized = directiveBodies.filter(
     (body) => classifyDirective(projectRoot, body).typeId === "Uncategorized"

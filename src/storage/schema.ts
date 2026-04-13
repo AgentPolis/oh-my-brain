@@ -6,7 +6,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
 
 export function initSchema(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
@@ -66,6 +66,9 @@ export function initSchema(db: Database.Database): void {
       source_msg_id     INTEGER REFERENCES messages(id),
       created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
       confirmed_by_user INTEGER NOT NULL DEFAULT 0,
+      evidence_text     TEXT,
+      evidence_turn     INTEGER,
+      last_referenced_at TEXT   NOT NULL DEFAULT (datetime('now')),
       superseded_by     INTEGER REFERENCES directives(id),
       superseded_at     TEXT
     );
@@ -100,6 +103,32 @@ export function initSchema(db: Database.Database): void {
       db.exec(`ALTER TABLE messages ADD COLUMN compacted_by INTEGER REFERENCES dag_nodes(id)`);
     }
     db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '2')`).run();
+  }
+
+  if (Number(currentVersion) < 3) {
+    const cols = (db.prepare(`PRAGMA table_info(directives)`).all() as Array<{ name: string }>)
+      .map((c) => c.name);
+    if (!cols.includes("evidence_text")) {
+      db.exec(`ALTER TABLE directives ADD COLUMN evidence_text TEXT`);
+    }
+    if (!cols.includes("evidence_turn")) {
+      db.exec(`ALTER TABLE directives ADD COLUMN evidence_turn INTEGER`);
+    }
+    db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '3')`).run();
+  }
+
+  if (Number(currentVersion) < 4) {
+    const cols = (db.prepare(`PRAGMA table_info(directives)`).all() as Array<{ name: string }>)
+      .map((c) => c.name);
+    if (!cols.includes("last_referenced_at")) {
+      db.exec(`ALTER TABLE directives ADD COLUMN last_referenced_at TEXT`);
+      db.exec(
+        `UPDATE directives
+         SET last_referenced_at = COALESCE(last_referenced_at, created_at)
+         WHERE last_referenced_at IS NULL`
+      );
+    }
+    db.prepare(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '4')`).run();
   }
 
   // Persist current schema version after migrations.

@@ -298,6 +298,7 @@ export function syncCodexSessions(options: CodexSyncOptions = {}): CodexSyncResu
       ingestCandidates(candidateStore, memoryCandidates, {
         source: "codex",
         sessionId: parsed.sessionId,
+        projectRoot: parsed.cwd,
       });
       saveCandidateStore(parsed.cwd, candidateStore);
     }

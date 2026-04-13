@@ -1,0 +1,52 @@
+[
+  {
+    "id": "build-vs-buy-memory",
+    "category": "architecture",
+    "situation": "Your agent system needs a memory layer. Mem0 is available as managed service ($19/mo), integration takes 2 days. Building your own takes 2 weeks. Team is 2 people, runway is 6 months.",
+    "options": ["Use Mem0 (fast, managed, external dependency)", "Build in-house (slow, full control, zero dependency)"],
+    "expected_decision": "Build in-house",
+    "rationale": "Core differentiators must be owned, not outsourced.",
+    "relevant_directives": ["Build core differentiators in-house, buy commodity"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "ship-without-guard",
+    "category": "security",
+    "situation": "Launch is in 3 days. You discover the injection guard needs 3 more days. A competitor just shipped. Users are waiting. Option A: Delay launch by 3 days to add the guard. Option B: Ship now without the guard, add it in a patch next week.",
+    "options": ["Delay launch", "Ship without guard"],
+    "expected_decision": "Delay launch",
+    "rationale": "Security is baseline, not feature. Never ship without it.",
+    "relevant_directives": ["Never ship without security review, even under time pressure"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "monolith-vs-split",
+    "category": "scope",
+    "situation": "The MCP server file is 28K lines and growing. Three developers work on it. Should you split it into separate packages?",
+    "options": ["Split into 3 packages (mcp-core, mcp-tools, mcp-transport)", "Keep as monolith with better internal modules"],
+    "expected_decision": "Keep as monolith",
+    "rationale": "Team < 5 people, monolith is simpler.",
+    "relevant_directives": ["Keep everything in one package until team > 3 people"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "user-feedback-conflict",
+    "category": "tradeoff",
+    "situation": "User A says 'too many review steps, just auto-save everything.' User B says 'I'm afraid auto-save will store wrong things.' How do you design the default Memory Candidates behavior?",
+    "options": ["Auto-save everything (satisfy User A)", "Review everything (satisfy User B)", "Confidence-based split (auto-save high confidence, review low)"],
+    "expected_decision": "Confidence-based split",
+    "rationale": "Not a binary choice. High confidence auto-saves, uncertain goes to review.",
+    "relevant_directives": ["Auto-save when confidence > 0.8, review when < 0.8"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "governance-centralized-vs-distributed",
+    "category": "operations",
+    "situation": "A multi-agent system needs a governance framework. Option A: each agent carries its own rules (distributed). Option B: a central constitution governs all agents (centralized).",
+    "options": ["Distributed (per-agent rules)", "Centralized (single constitution)"],
+    "expected_decision": "Centralized",
+    "rationale": "Rule consistency matters more than agent autonomy.",
+    "relevant_directives": ["Governance rules must be centralized, not per-agent"],
+    "difficulty": "hard"
+  }
+]

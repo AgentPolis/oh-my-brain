@@ -1,0 +1,28 @@
+{"type":"user","message":{"role":"user","content":"ok"}}
+{"type":"assistant","message":{"role":"assistant","content":"Working on step 0. Here is a small status update."}}
+{"type":"user","message":{"role":"user","content":"Always preserve API backward compatibility."}}
+{"type":"user","message":{"role":"user","content":"Never remove audit logs from production systems."}}
+{"type":"assistant","message":{"role":"assistant","content":"This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. Section 0."}}
+{"type":"assistant","message":{"role":"assistant","content":"This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. Section 1."}}
+{"type":"assistant","message":{"role":"assistant","content":"This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. Section 2."}}
+{"type":"assistant","message":{"role":"assistant","content":"This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. This is a long implementation note with architectural details, edge cases, testing notes, and rollout concerns. Section 3."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 0: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 1: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 2: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 3: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 4: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 5: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 6: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 7: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 8: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 9: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 10: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 11: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 12: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 13: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 14: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 15: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 16: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 17: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 18: please continue with the migration plan and keep the current schema stable."}}
+{"type":"user","message":{"role":"user","content":"Fresh tail message 19: please continue with the migration plan and keep the current schema stable."}}

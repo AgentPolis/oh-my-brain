@@ -18,8 +18,9 @@
  */
 
 import { runCandidatesCli } from "./candidates-cli.js";
+import { runImportCli } from "./import.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 const HELP_TEXT = `oh-my-brain ${VERSION} — the second brain for AI agents
 
@@ -31,6 +32,9 @@ Commands:
   codex-sync       Sync Codex sessions (alias: brain-codex-sync)
   audit            Print the markdown audit for this project (alias: brain-audit)
   candidates       Review queue for Memory Candidates (alias: brain-candidates)
+  eval             Run Decision Replay evaluation
+  init             Scan the project and bootstrap initial memory
+  import           Import directives from existing AI rule files
   mcp              Start the MCP server over stdio (alias: brain-mcp)
   help             Show this message
   version          Show the version number
@@ -100,6 +104,23 @@ async function main(): Promise<number> {
       await mod.startMcpServer();
     }
     return 0;
+  }
+
+  if (cmd === "import") {
+    const delegated = [process.argv[0], "import", ...args.slice(1)];
+    return runImportCli(delegated, process.cwd());
+  }
+
+  if (cmd === "eval") {
+    const delegated = [process.argv[0], "eval", ...args.slice(1)];
+    const mod = await import("./eval.js");
+    return mod.runDecisionReplayCli(delegated, process.cwd());
+  }
+
+  if (cmd === "init") {
+    const delegated = [process.argv[0], "init", ...args.slice(1)];
+    const mod = await import("./init-scan.js");
+    return mod.runInitCli(delegated, process.cwd());
   }
 
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);

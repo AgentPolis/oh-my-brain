@@ -58,6 +58,7 @@ import {
   retireDirective,
   type WriteMetadata,
 } from "./compress-core.js";
+import { persistDirectives } from "../src/storage/directives.js";
 import {
   approveCandidate,
   loadCandidateStore,
@@ -304,6 +305,7 @@ export function applyRememberDirective(
   const meta: WriteMetadata = {
     source: (ctx.source as "claude" | "codex") ?? "claude",
     sessionId: ctx.sessionId,
+    guardSource: "mcp",
   };
 
   const written = appendDirectivesToMemory(
@@ -326,7 +328,10 @@ export function applyRememberDirective(
     },
   };
   appendActionToLog(ctx.projectRoot, action);
-  if (written > 0) runOntologyScan(ctx.projectRoot);
+  if (written > 0) {
+    persistDirectives(ctx.projectRoot, [{ directiveText: finalText }]);
+    runOntologyScan(ctx.projectRoot);
+  }
   return action;
 }
 
@@ -353,6 +358,7 @@ export function applyPromoteCandidate(
         ? ((ctx.source as "claude" | "codex") ?? "claude")
         : (record.source as "claude" | "codex"),
     sessionId: record.sessionId ?? ctx.sessionId,
+    guardSource: "candidates",
   };
 
   const written = appendDirectivesToMemory(
@@ -379,7 +385,10 @@ export function applyPromoteCandidate(
     },
   };
   appendActionToLog(ctx.projectRoot, action);
-  if (written > 0) runOntologyScan(ctx.projectRoot);
+  if (written > 0) {
+    persistDirectives(ctx.projectRoot, [{ directiveText: result.finalText }]);
+    runOntologyScan(ctx.projectRoot);
+  }
   return action;
 }
 

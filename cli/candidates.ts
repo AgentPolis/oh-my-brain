@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { createHash } from "crypto";
 import { join } from "path";
+import { logBlocked, scanForInjection } from "./compress-core.js";
 
 export type CandidateStatus = "pending" | "approved" | "rejected";
 
@@ -94,7 +95,11 @@ export function saveCandidateStore(projectRoot: string, store: CandidateStore): 
 export function ingestCandidates(
   store: CandidateStore,
   texts: string[],
-  metadata: { source: "claude" | "codex" | "unknown"; sessionId?: string }
+  metadata: {
+    source: "claude" | "codex" | "unknown";
+    sessionId?: string;
+    projectRoot?: string;
+  }
 ): CandidateRecord[] {
   const now = new Date().toISOString();
   const newlyCreated: CandidateRecord[] = [];
@@ -102,6 +107,23 @@ export function ingestCandidates(
   for (const rawText of texts) {
     const text = rawText.trim();
     if (text.length === 0) continue;
+    try {
+      const scan = scanForInjection(text);
+      if (!scan.safe) {
+        if (metadata.projectRoot) {
+          logBlocked(join(metadata.projectRoot, ".squeeze"), {
+            ts: new Date().toISOString(),
+            text,
+            reason: scan.reason ?? "blocked",
+            session: metadata.sessionId ?? "unknown",
+            source: "candidates",
+          });
+        }
+        continue;
+      }
+    } catch {
+      // Guard failures should not block candidate ingestion.
+    }
 
     const id = candidateId(text);
     const existing = store.candidates[id];

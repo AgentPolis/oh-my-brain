@@ -148,7 +148,7 @@ describe("Cross-agent handoff", () => {
     });
 
     // Agent C uses the MCP server to recall everything
-    const recalled = callMcp("brain_recall");
+    const recalled = callMcp("brain_recall", { mode: "all" });
 
     expect(recalled).toContain("Always review before merging");
     expect(recalled).toContain("Never force-push to main");
@@ -175,7 +175,7 @@ describe("Cross-agent handoff", () => {
     expect(addResult).toMatch(/remembered/);
 
     // Cursor then recalls — should see all three
-    const recalled = callMcp("brain_recall");
+    const recalled = callMcp("brain_recall", { mode: "all" });
     expect(recalled).toContain("Always prefer composition over inheritance");
     expect(recalled).toContain("Never swallow exceptions silently");
     expect(recalled).toContain("Always keep functions under 30 lines");

@@ -78,8 +78,11 @@ export function assemble(input: AssemblerInput): AssembledContext {
   let summaryCount = 0;
   let summaryTokensUsed = 0;
   for (const node of input.dagNodes) {
-    const meta = JSON.parse(node.sourceIds as unknown as string) as { minTurn: number; maxTurn: number };
-    const summaryText = `[Summary turns ${meta.minTurn}–${meta.maxTurn}]: ${node.abstract}`;
+    const turnRange =
+      node.minTurn !== null && node.maxTurn !== null
+        ? `${node.minTurn}-${node.maxTurn}`
+        : "unknown";
+    const summaryText = `[Summary turns ${turnRange}]: ${node.abstract}`;
     const summaryTokens = estimateTokens(summaryText);
     if (summaryTokensUsed + summaryTokens > input.budget.historySummaries) break;
     messages.push({ role: "system", content: summaryText });
@@ -89,7 +92,6 @@ export function assemble(input: AssemblerInput): AssembledContext {
   }
 
   // 5. Fresh tail (was step 4)
-  const tailBudget = input.budget.total - tokenCount;
   for (const msg of input.freshTail) {
     const msgTokens = estimateTokens(msg.content);
     if (tokenCount + msgTokens > input.budget.total) break;

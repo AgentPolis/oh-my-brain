@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.agentpolis.squeeze-codex-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE_PATH__</string>
+    <string>__REPO_ROOT__/dist/cli/codex-sync.js</string>
+    <string>--watch</string>
+    <string>--interval-ms</string>
+    <string>15000</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.codex/memories/squeeze-codex-launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.codex/memories/squeeze-codex-launchd.err.log</string>
+</dict>
+</plist>
