@@ -81,6 +81,32 @@ export class EventStore {
     );
   }
 
+  countBefore(opts: {
+    before: string;
+    category?: string;
+    whatContains?: string;
+  }): number {
+    const beforeTime = normalizeBoundary(opts.before, "start");
+    return this.getAll().filter((event) => {
+      const range = getEventRange(event);
+      return range.start < beforeTime && matchesCountFilters(event, opts);
+    }).length;
+  }
+
+  countInRange(opts: {
+    from: string;
+    to: string;
+    category?: string;
+    whatContains?: string;
+  }): number {
+    const fromTime = normalizeBoundary(opts.from, "start");
+    const toTime = normalizeBoundary(opts.to, "end");
+    return this.getAll().filter((event) => {
+      const range = getEventRange(event);
+      return range.start <= toTime && range.end >= fromTime && matchesCountFilters(event, opts);
+    }).length;
+  }
+
   getAll(): BrainEvent[] {
     if (!existsSync(this.eventsPath)) return [];
     const raw = readFileSync(this.eventsPath, "utf8");
@@ -146,10 +172,11 @@ export function detectEventCategory(text: string): string {
   if (/\b(?:fly|flew|flight|airline|airport|trip|travel|hotel|airbnb|vacation)\b/.test(lower)) {
     return "travel";
   }
+  if (/\b(?:dog|cat|pet|puppy|kitten|luna|training pads?|dog bed|cat tree)\b|狗|貓|寵物/.test(lower)) return "pets";
   if (/\b(?:buy|bought|purchase|purchased|order|ordered|shop|store|price|received|got|picked up)\b|買了|買到|訂了|收到/.test(lower)) {
     return "shopping";
   }
-  if (/\b(?:watch|movie|show|book|read|reading|game|play|concert|episode)\b|看了|讀完|開始看|開始讀/.test(lower)) {
+  if (/\b(?:watch|watching|movie|show|book|read|reading|game|play|playing|concert|episode|stand-up)\b|看了|讀完|開始看|開始讀/.test(lower)) {
     return "entertainment";
   }
   if (/\b(?:work|working|job|office|meeting|team|colleague|manager|boss)\b|工作|上班|同事|會議/.test(lower)) {
@@ -162,7 +189,6 @@ export function detectEventCategory(text: string): string {
   if (/\b(?:charity|volunteer|donate|event|festival|meetup|conference)\b|活動|會議|聚會|慈善/.test(lower)) {
     return "events";
   }
-  if (/\b(?:dog|cat|pet|puppy|kitten|luna)\b|狗|貓|寵物/.test(lower)) return "pets";
   if (/\b(?:fly|flew|flight|airline|airport|trip|travel|hotel|airbnb|vacation)\b|飛去|去了|旅行|航班|機場/.test(lower)) {
     return "travel";
   }
@@ -256,6 +282,21 @@ function getEventRange(event: BrainEvent): { start: number; end: number } {
         end: start + 24 * 60 * 60 * 1000 - 1,
       };
   }
+}
+
+function matchesCountFilters(
+  event: BrainEvent,
+  opts: { category?: string; whatContains?: string }
+): boolean {
+  const category = opts.category?.trim().toLowerCase();
+  const whatContains = opts.whatContains?.trim().toLowerCase();
+  if (category && event.category.toLowerCase() !== category) {
+    return false;
+  }
+  if (whatContains && !event.what.toLowerCase().includes(whatContains)) {
+    return false;
+  }
+  return true;
 }
 
 function normalizeBoundary(input: string, edge: "start" | "end"): number {

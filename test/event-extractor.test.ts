@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractEvents, resolveDate } from "../cli/event-extractor.js";
+import { extractDuration, extractEvents, resolveDate, resolveRelativeDate } from "../cli/event-extractor.js";
 
 const baseContext = {
   sessionId: "sess-1",
@@ -145,7 +145,7 @@ describe("extractEvents", () => {
       baseContext
     );
     expect(event.what).toContain("買了新的鍵盤");
-    expect(event.ts_precision).toBe("relative");
+    expect(event.ts_precision).toBe("exact");
   });
 
   it("supports Chinese travel patterns", () => {
@@ -219,6 +219,60 @@ describe("extractEvents", () => {
     );
     expect(events).toEqual([]);
   });
+
+  it("extracts setup/install events", () => {
+    const [event] = extractEvents(
+      { role: "user", content: "I set up the smart thermostat yesterday." },
+      baseContext
+    );
+    expect(event.what).toBe("set up smart thermostat");
+  });
+
+  it("extracts home improvement events", () => {
+    const [event] = extractEvents(
+      { role: "user", content: "I rearranged my living room furniture." },
+      baseContext
+    );
+    expect(event.what).toBe("rearranged living room furniture");
+  });
+
+  it("extracts membership events", () => {
+    const [event] = extractEvents(
+      { role: "user", content: "I became a member of Book Lovers Unite three weeks ago." },
+      baseContext
+    );
+    expect(event.what).toContain("Book Lovers Unite");
+    expect(event.ts_precision).toBe("week");
+  });
+
+  it("extracts duration-based activities", () => {
+    const [event] = extractEvents(
+      { role: "user", content: "I've been watching stand-up for about 2 months." },
+      baseContext
+    );
+    expect(event.what).toBe("watching stand-up");
+    expect(event.detail).toContain("for 2 months");
+    expect(event.category).toBe("entertainment");
+  });
+
+  it("extracts pet events and names the pet", () => {
+    const [event] = extractEvents(
+      { role: "user", content: "I got training pads for Luna." },
+      baseContext
+    );
+    expect(event.what).toBe("got training pads for Luna");
+    expect(event.who).toContain("Luna");
+    expect(event.category).toBe("pets");
+  });
+
+  it("extracts charity and volunteer events", () => {
+    const [event] = extractEvents(
+      { role: "user", content: "I participated in the Walk for Hunger event." },
+      baseContext
+    );
+    expect(event.what).toBe("participated in Walk for Hunger event");
+    expect(event.category).toBe("events");
+  });
 });
 
 describe("resolveDate", () => {
@@ -238,8 +292,8 @@ describe("resolveDate", () => {
 
   it("resolves about a month ago as relative", () => {
     expect(resolveDate("about a month ago", "relative", "2026-03-20T12:00:00.000Z")).toEqual({
-      ts: "2026-02-20T00:00:00.000Z",
-      precision: "relative",
+      ts: "2026-02-18T00:00:00.000Z",
+      precision: "month",
     });
   });
 
@@ -255,5 +309,98 @@ describe("resolveDate", () => {
       ts: "2026-03-20T00:00:00.000Z",
       precision: "relative",
     });
+  });
+
+  it("resolves 3 weeks ago with week precision", () => {
+    expect(resolveRelativeDate("3 weeks ago", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-03-24T00:00:00.000Z",
+      precision: "week",
+      original: "3 weeks ago",
+    });
+  });
+
+  it("resolves two months ago with month precision", () => {
+    expect(resolveRelativeDate("two months ago", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-02-13T00:00:00.000Z",
+      precision: "month",
+      original: "two months ago",
+    });
+  });
+
+  it("resolves last Tuesday using the reference date", () => {
+    expect(resolveRelativeDate("last Tuesday", "2026-03-20T12:00:00.000Z")).toEqual({
+      ts: "2026-03-17T00:00:00.000Z",
+      precision: "day",
+      original: "last Tuesday",
+    });
+  });
+
+  it("treats last Tuesday on Tuesday as seven days ago", () => {
+    expect(resolveRelativeDate("last Tuesday", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-04-07T00:00:00.000Z",
+      precision: "day",
+      original: "last Tuesday",
+    });
+  });
+
+  it("resolves about a month ago as 30 days back", () => {
+    expect(resolveRelativeDate("about a month ago", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-03-15T00:00:00.000Z",
+      precision: "month",
+      original: "about a month ago",
+    });
+  });
+
+  it("resolves mid-month references", () => {
+    expect(resolveRelativeDate("in mid-February", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-02-15T00:00:00.000Z",
+      precision: "week",
+      original: "in mid-February",
+    });
+  });
+
+  it("resolves early-month references", () => {
+    expect(resolveRelativeDate("in early March", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-03-05T00:00:00.000Z",
+      precision: "week",
+      original: "in early March",
+    });
+  });
+
+  it("resolves late-month references", () => {
+    expect(resolveRelativeDate("in late April", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-04-25T00:00:00.000Z",
+      precision: "week",
+      original: "in late April",
+    });
+  });
+
+  it("resolves day ranges to the starting day", () => {
+    expect(resolveRelativeDate("from the 12th to the 15th", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-04-12T00:00:00.000Z",
+      precision: "day",
+      original: "from the 12th to the 15th",
+    });
+  });
+
+  it("resolves yesterday and today exactly", () => {
+    expect(resolveRelativeDate("yesterday", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-04-13T00:00:00.000Z",
+      precision: "exact",
+      original: "yesterday",
+    });
+    expect(resolveRelativeDate("today", "2026-04-14T12:00:00.000Z")).toEqual({
+      ts: "2026-04-14T00:00:00.000Z",
+      precision: "exact",
+      original: "today",
+    });
+  });
+});
+
+describe("extractDuration", () => {
+  it("extracts durations from relative phrasing", () => {
+    expect(extractDuration("for about 2 weeks")).toEqual({ value: 2, unit: "week" });
+    expect(extractDuration("for three months")).toEqual({ value: 3, unit: "month" });
+    expect(extractDuration("for a year")).toEqual({ value: 1, unit: "year" });
   });
 });

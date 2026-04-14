@@ -144,6 +144,32 @@ describe("EventStore", () => {
     expect(timeline).toContain("Mar14: car serviced");
     expect(timeline).toContain("Apr06: bought training pads for Luna");
   });
+
+  it("counts events before a given date with category filtering", () => {
+    const store = makeStore();
+    store.append([
+      makeEvent({ id: "evt-1", ts: "2026-03-01T10:00:00.000Z", category: "events", what: "joined charity walk" }),
+      makeEvent({ id: "evt-2", ts: "2026-05-01T10:00:00.000Z", category: "events", what: "ran in fundraiser" }),
+      makeEvent({ id: "evt-3", ts: "2026-06-02T10:00:00.000Z", category: "events", what: "attended Run for the Cure" }),
+    ]);
+    expect(store.countBefore({ before: "2026-06-01", category: "events" })).toBe(2);
+  });
+
+  it("counts events in a range with keyword filtering", () => {
+    const store = makeStore();
+    store.append([
+      makeEvent({ id: "evt-1", ts: "2026-03-05T10:00:00.000Z", category: "events", what: "charity walk kickoff" }),
+      makeEvent({ id: "evt-2", ts: "2026-03-20T10:00:00.000Z", category: "events", what: "charity gala" }),
+      makeEvent({ id: "evt-3", ts: "2026-04-10T10:00:00.000Z", category: "events", what: "team meetup" }),
+    ]);
+    expect(
+      store.countInRange({
+        from: "2026-03-01",
+        to: "2026-04-01",
+        whatContains: "charity",
+      })
+    ).toBe(2);
+  });
 });
 
 describe("detectEventCategory", () => {

@@ -547,6 +547,140 @@ describe("MCP server", () => {
     expect(text).toContain("Apr11: 1 msgs");
   });
 
+  it("brain_search answers count queries before a named event", () => {
+    const events = new EventStore(join(tmp, ".squeeze"));
+    events.append([
+      {
+        id: "e5",
+        ts: "2026-03-05T09:00:00.000Z",
+        ts_ingest: "2026-03-05T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "Walk for Hunger",
+        detail: "charity event",
+        category: "events",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "I participated in the Walk for Hunger event.",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+      {
+        id: "e6",
+        ts: "2026-03-20T09:00:00.000Z",
+        ts_ingest: "2026-03-20T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "Food Bank 5K",
+        detail: "charity run",
+        category: "events",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "I ran in the Food Bank 5K.",
+        session_id: "sess-1",
+        turn_index: 2,
+      },
+      {
+        id: "e7",
+        ts: "2026-04-12T09:00:00.000Z",
+        ts_ingest: "2026-04-12T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "Run for the Cure",
+        detail: "charity fundraiser",
+        category: "events",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "I participated in Run for the Cure.",
+        session_id: "sess-1",
+        turn_index: 3,
+      },
+    ]);
+
+    const response = callTool("brain_search", {
+      query: "how many charity events before Run for the Cure",
+    });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Found 2 events matching before Run for the Cure");
+    expect(text).toContain("category=events");
+  });
+
+  it("brain_search answers count queries in a date range", () => {
+    const events = new EventStore(join(tmp, ".squeeze"));
+    events.append([
+      {
+        id: "e8",
+        ts: "2026-03-03T09:00:00.000Z",
+        ts_ingest: "2026-03-03T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "laptop stand purchase",
+        detail: "",
+        category: "shopping",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "laptop stand purchase",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+      {
+        id: "e9",
+        ts: "2026-03-18T09:00:00.000Z",
+        ts_ingest: "2026-03-18T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "laptop sleeve order",
+        detail: "",
+        category: "shopping",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "laptop sleeve order",
+        session_id: "sess-1",
+        turn_index: 2,
+      },
+      {
+        id: "e10",
+        ts: "2026-04-10T09:00:00.000Z",
+        ts_ingest: "2026-04-10T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "desk lamp purchase",
+        detail: "",
+        category: "shopping",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "desk lamp purchase",
+        session_id: "sess-1",
+        turn_index: 3,
+      },
+    ]);
+
+    const response = callTool("brain_search", {
+      query: "how many laptop from 2026-03-01 to 2026-04-01",
+    });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Found 2 events matching from 2026-03-01 to 2026-04-01");
+    expect(text).toContain('what~"laptop"');
+  });
+
   it("brain_candidates supports full add → list → approve flow", () => {
     // Add
     const add = callTool("brain_candidates", {

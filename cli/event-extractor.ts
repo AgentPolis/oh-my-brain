@@ -19,6 +19,7 @@ interface ActionPattern {
   pattern: RegExp;
   buildWhat: (match: RegExpMatchArray) => string;
   buildDetail?: (match: RegExpMatchArray) => string;
+  buildWho?: (match: RegExpMatchArray) => string[];
 }
 
 const ACTION_PATTERNS: ActionPattern[] = [
@@ -27,6 +28,68 @@ const ACTION_PATTERNS: ActionPattern[] = [
     pattern:
       /\b(?:I\s+)?(?:got|had)\s+(?:my\s+)?(.{3,30}?)\s+(serviced|repaired|fixed|checked|detailed)(?:\s+(?:last\s+\w+|yesterday|today|on\s+\w+\s+\d{1,2}(?:st|nd|rd|th)?|in\s+\w+))?(?=[,.!;]|$|\s+and\b|\s+but\b)/i,
     buildWhat: (match) => `${cleanFragment(match[1])} ${match[2].toLowerCase()}`,
+  },
+  {
+    kind: "pet-acquisition",
+    pattern:
+      /\b(?:got|bought|ordered)\s+(?:a |an |the )?(.{3,30}?)\s+for\s+(?:my\s+)?(?:dog|cat|pet)\s+(\w+)(?:[,.!;]|$)/i,
+    buildWhat: (match) => `got ${cleanFragment(match[1])} for ${cleanFragment(match[2])}`,
+    buildWho: (match) => [cleanFragment(match[2])],
+  },
+  {
+    kind: "named-pet-acquisition",
+    pattern:
+      /\b(?:got|bought|ordered)\s+(?:a |an |the )?(.{3,30}?)\s+for\s+([A-Z][\w'-]+)(?:[,.!;]|$)/,
+    buildWhat: (match) => `got ${cleanFragment(match[1])} for ${cleanFragment(match[2])}`,
+    buildWho: (match) => [cleanFragment(match[2])],
+  },
+  {
+    kind: "setup",
+    pattern:
+      /\b(?:I|i|we)\s+(?:set up|installed|configured|connected|hooked up)\s+(.{3,60}?)(?:[,.!;]|$)/,
+    buildWhat: (match) => `${leadingVerb(match[0])} ${cleanFragment(match[1]).replace(/^(?:a|an|the)\s+/i, "")}`,
+  },
+  {
+    kind: "home-improvement",
+    pattern:
+      /\b(?:I|i|we)\s+(?:rearranged|redecorated|moved|placed|put up|hung)\s+(.{3,40}?)(?:[,.!;]|$)/,
+    buildWhat: (match) => `${leadingVerb(match[0])} ${cleanFragment(match[1])}`,
+  },
+  {
+    kind: "room-acquisition",
+    pattern:
+      /\b(?:got|bought)\s+(?:a |an |the )?(?:new\s+)?(.{3,30}?)\s+for\s+(?:the |my )(.{3,30}?)(?:[,.!;]|$)/i,
+    buildWhat: (match) => `got ${cleanFragment(match[1])} for ${cleanFragment(match[2])}`,
+  },
+  {
+    kind: "membership",
+    pattern:
+      /\b(?:I|i|we)\s+(?:became a member(?:\s+of)?|signed up for|subscribed to|registered for)\s+(.{3,60}?)(?:[,.!;]|$)/,
+    buildWhat: (match) => `${leadingVerb(match[0])} ${cleanFragment(match[1])}`,
+  },
+  {
+    kind: "duration-activity",
+    pattern:
+      /\b(?:I've been|I have been)\s+(.{3,40}?)\s+for\s+(.{3,30}?)(?:[,.!;]|$)/i,
+    buildWhat: (match) => cleanFragment(match[1]),
+    buildDetail: (match) => {
+      const duration = extractDuration(`for ${match[2]}`);
+      if (!duration) return `for ${cleanFragment(match[2])}`;
+      return `for ${duration.value} ${duration.unit}${duration.value === 1 ? "" : "s"}`;
+    },
+  },
+  {
+    kind: "comparison",
+    pattern:
+      /\b(?:got|bought|started|joined)\s+(.{3,30}?)\s+(before|after)\s+(.{3,30}?)(?:[,.!;]|$)/i,
+    buildWhat: (match) => `${leadingVerb(match[0])} ${cleanFragment(match[1])}`,
+    buildDetail: (match) => `${match[2].toLowerCase()} ${cleanFragment(match[3])}`,
+  },
+  {
+    kind: "charity-event",
+    pattern:
+      /\b(?:I|i|we)\s+(?:participated in|volunteered at|walked in|ran in)\s+(?:the\s+)?['"]?(.{3,60}?)['"]?(?:[,.!;]|$)/,
+    buildWhat: (match) => `${leadingVerb(match[0])} ${cleanFragment(match[1])}`,
   },
   {
     kind: "acquisition",
@@ -49,7 +112,8 @@ const ACTION_PATTERNS: ActionPattern[] = [
     kind: "attend",
     pattern:
       /\b(?:I|i|we)\s+(?:attended|participated in|went to)\s+(?:the\s+)?(.{3,60}?)(?:[,.!;]|$)/,
-    buildWhat: (match) => `${leadingVerb(match[0])} ${cleanFragment(match[1])}`,
+    buildWhat: (match) =>
+      `${leadingVerb(match[0])} ${cleanFragment(match[1]).replace(/\s+in\s+[A-Z][\w&.-]+(?:\s+[A-Z][\w&.-]+){0,3}$/i, "")}`,
   },
   {
     kind: "work",
@@ -95,10 +159,19 @@ const ACTION_PATTERNS: ActionPattern[] = [
 const TIME_PATTERNS = [
   { pattern: /\bon\s+(\w+\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)/i, precision: "exact" as const },
   { pattern: /from\s+(?:the\s+)?(\d{1,2}(?:st|nd|rd|th)?)\s+to\s+(?:the\s+)?(\d{1,2}(?:st|nd|rd|th)?)/i, precision: "day" as const },
-  { pattern: /\b(last\s+\w+day|last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|yesterday|today|two\s+(?:weeks|days|months)\s+ago)\b/i, precision: "relative" as const },
+  {
+    pattern:
+      /\b(last\s+\w+day|last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|yesterday|today|(?:about\s+)?(?:a|\d+|one|two|three|four|five|six)\s+(?:days?|weeks?|months?|years?)\s+ago)\b/i,
+    precision: "relative" as const,
+  },
+  {
+    pattern:
+      /\bin\s+(?:early|mid|late)[-\s]+(January|February|March|April|May|June|July|August|September|October|November|December)\b/i,
+    precision: "week" as const,
+  },
   { pattern: /\bin\s+(January|February|March|April|May|June|July|August|September|October|November|December)\b/i, precision: "month" as const },
-  { pattern: /\bfor\s+(?:about\s+)?(\d+|a|two|three)\s+(weeks?|months?|days?|years?)\b/i, precision: "relative" as const },
-  { pattern: /\b(\d+|a|about\s+a|two|three)\s+(weeks?|months?|days?|years?)\s+ago\b/i, precision: "relative" as const },
+  { pattern: /\bfor\s+(?:about\s+)?(\d+|a|one|two|three|four|five)\s+(weeks?|months?|days?|years?)\b/i, precision: "relative" as const },
+  { pattern: /\b(\d+|a|one|two|three|four|five|six|about\s+a)\s+(weeks?|months?|days?|years?)\s+ago\b/i, precision: "relative" as const },
   { pattern: /(?:上週.|上星期.|昨天|今天|前天|上個月|這個月|三天前|兩週前)/, precision: "relative" as const },
   { pattern: /在\s*(\d{1,2})月(\d{1,2})日/, precision: "exact" as const },
   { pattern: /在\s*(一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|十一月|十二月)/, precision: "month" as const },
@@ -160,6 +233,7 @@ export function extractEvents(message: ExtractEventMessage, context: ExtractEven
       if (!match) continue;
       const what = normalizeWhat(action.buildWhat(match));
       if (!what) continue;
+      const patternWho = action.buildWho?.(match).map(cleanFragment).filter(Boolean) ?? [];
       const detail = mergeDetails([
         action.buildDetail?.(match) ?? "",
         ...collectDetailFragments(sentence),
@@ -170,7 +244,7 @@ export function extractEvents(message: ExtractEventMessage, context: ExtractEven
           what,
           detail,
           category: detectEventCategory(`${what} ${detail}`),
-          who,
+          who: mergeWho(who, patternWho),
           where,
           sentiment,
           sourceText: content,
@@ -225,6 +299,11 @@ export function resolveDate(
   const raw = matchText.trim();
   const sessionYear = base.getUTCFullYear();
 
+  const relative = resolveRelativeDate(raw, sessionDate);
+  if (relative) {
+    return { ts: relative.ts, precision: relative.precision };
+  }
+
   const chineseDate = raw.match(/(\d{1,2})月(\d{1,2})日/);
   if (chineseDate) {
     const month = Number(chineseDate[1]) - 1;
@@ -272,46 +351,8 @@ export function resolveDate(
     };
   }
 
-  const lower = raw.toLowerCase();
-  if (lower === "yesterday" || raw === "昨天") {
-    return { ts: shiftDays(base, -1).toISOString(), precision: "relative" };
-  }
-  if (lower === "today" || raw === "今天") {
-    return { ts: base.toISOString(), precision: "relative" };
-  }
-  if (/last\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(lower)) {
-    const weekday = lower.match(/last\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i)?.[1] ?? "";
-    return { ts: lastWeekday(base, weekday).toISOString(), precision: "day" };
-  }
-  if (/last\s+\w+day/i.test(lower)) {
-    return { ts: shiftDays(base, -1).toISOString(), precision: "day" };
-  }
-  if (/two\s+weeks?\s+ago/i.test(lower) || raw === "兩週前") {
-    return { ts: shiftDays(base, -14).toISOString(), precision: "relative" };
-  }
-  if (/two\s+days?\s+ago/i.test(lower) || raw === "兩天前") {
-    return { ts: shiftDays(base, -2).toISOString(), precision: "relative" };
-  }
-  if (/three\s+days?\s+ago/i.test(lower) || raw === "三天前") {
-    return { ts: shiftDays(base, -3).toISOString(), precision: "relative" };
-  }
-  if (/about\s+a\s+month\s+ago|a\s+month\s+ago/i.test(lower)) {
-    return { ts: shiftMonths(base, -1).toISOString(), precision: "relative" };
-  }
-  if (/(\d+)\s+months?\s+ago/i.test(lower)) {
-    const amount = Number(lower.match(/(\d+)\s+months?\s+ago/i)?.[1] ?? "0");
-    return { ts: shiftMonths(base, -amount).toISOString(), precision: "relative" };
-  }
-  if (/(\d+)\s+weeks?\s+ago/i.test(lower)) {
-    const amount = Number(lower.match(/(\d+)\s+weeks?\s+ago/i)?.[1] ?? "0");
-    return { ts: shiftDays(base, -7 * amount).toISOString(), precision: "relative" };
-  }
-  if (/(\d+)\s+days?\s+ago/i.test(lower)) {
-    const amount = Number(lower.match(/(\d+)\s+days?\s+ago/i)?.[1] ?? "0");
-    return { ts: shiftDays(base, -amount).toISOString(), precision: "relative" };
-  }
   if (raw === "上個月") {
-    return { ts: shiftMonths(base, -1).toISOString(), precision: "relative" };
+    return { ts: shiftMonths(base, -1).toISOString(), precision: "month" };
   }
   if (raw === "這個月") {
     return { ts: new Date(Date.UTC(sessionYear, base.getUTCMonth(), 1)).toISOString(), precision: "month" };
@@ -358,6 +399,108 @@ function detectTime(content: string, sessionDate: string): { ts: string; precisi
     return resolveDate(match[0], candidate.precision, sessionDate);
   }
   return { ts: normalizeSessionTimestamp(sessionDate), precision: "relative" };
+}
+
+interface ResolvedDate {
+  ts: string;
+  precision: "exact" | "day" | "week" | "month";
+  original: string;
+}
+
+export function resolveRelativeDate(text: string, referenceDate: string): ResolvedDate | null {
+  const ref = startOfUtcDay(referenceDate);
+  const lower = text.trim().toLowerCase();
+
+  const yesterday = text.match(/\byesterday\b/i);
+  if (yesterday || text.trim() === "昨天") {
+    return {
+      ts: shiftDays(ref, -1).toISOString(),
+      precision: "exact",
+      original: yesterday?.[0] ?? text.trim(),
+    };
+  }
+
+  const today = text.match(/\btoday\b/i);
+  if (today || text.trim() === "今天") {
+    return {
+      ts: ref.toISOString(),
+      precision: "exact",
+      original: today?.[0] ?? text.trim(),
+    };
+  }
+
+  const lastWeekdayMatch = text.match(/\blast\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/i);
+  if (lastWeekdayMatch) {
+    return {
+      ts: lastWeekday(ref, lastWeekdayMatch[1]).toISOString(),
+      precision: "day",
+      original: lastWeekdayMatch[0],
+    };
+  }
+
+  if (/last\s+\w+day/i.test(lower)) {
+    return {
+      ts: shiftDays(ref, -1).toISOString(),
+      precision: "day",
+      original: text.trim(),
+    };
+  }
+
+  const rangeMatch = text.match(/from\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+to\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?/i);
+  if (rangeMatch) {
+    return {
+      ts: new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), Number(rangeMatch[1]))).toISOString(),
+      precision: "day",
+      original: rangeMatch[0],
+    };
+  }
+
+  const monthPhaseMatch = text.match(/\bin\s+(early|mid|late)[-\s]+(January|February|March|April|May|June|July|August|September|October|November|December)\b/i);
+  if (monthPhaseMatch) {
+    const targetDay = monthPhaseMatch[1].toLowerCase() === "early" ? 5 : monthPhaseMatch[1].toLowerCase() === "late" ? 25 : 15;
+    return {
+      ts: new Date(Date.UTC(ref.getUTCFullYear(), monthNameToIndex(monthPhaseMatch[2]), targetDay)).toISOString(),
+      precision: "week",
+      original: monthPhaseMatch[0],
+    };
+  }
+
+  const agoMatch = text.match(/\b(?:about\s+)?(\d+|a|one|two|three|four|five|six)\s+(days?|weeks?|months?|years?)\s+ago\b/i);
+  if (agoMatch) {
+    const amount = parseCountToken(agoMatch[1]);
+    const unit = agoMatch[2].toLowerCase();
+    const precision = unit.startsWith("day") ? "day" : unit.startsWith("week") ? "week" : "month";
+    if (unit.startsWith("day")) {
+      return { ts: shiftDays(ref, -amount).toISOString(), precision, original: agoMatch[0] };
+    }
+    if (unit.startsWith("week")) {
+      return { ts: shiftDays(ref, -(amount * 7)).toISOString(), precision, original: agoMatch[0] };
+    }
+    if (unit.startsWith("month")) {
+      return { ts: shiftDays(ref, -(amount * 30)).toISOString(), precision, original: agoMatch[0] };
+    }
+    return { ts: shiftDays(ref, -(amount * 365)).toISOString(), precision: "month", original: agoMatch[0] };
+  }
+
+  if (text.trim() === "兩週前") {
+    return { ts: shiftDays(ref, -14).toISOString(), precision: "week", original: text.trim() };
+  }
+  if (text.trim() === "兩天前") {
+    return { ts: shiftDays(ref, -2).toISOString(), precision: "day", original: text.trim() };
+  }
+  if (text.trim() === "三天前") {
+    return { ts: shiftDays(ref, -3).toISOString(), precision: "day", original: text.trim() };
+  }
+
+  return null;
+}
+
+export function extractDuration(text: string): { value: number; unit: string } | null {
+  const match = text.match(
+    /\bfor\s+(?:about\s+)?(\d+|a|one|two|three|four|five)\s+(days?|weeks?|months?|years?)\b/i
+  );
+  if (!match) return null;
+  return { value: parseCountToken(match[1]), unit: match[2].toLowerCase().replace(/s$/, "") };
 }
 
 function detectSentiment(content: string): EventSentiment {
@@ -448,6 +591,10 @@ function dedupeEvents(events: BrainEvent[]): BrainEvent[] {
   return deduped;
 }
 
+function mergeWho(base: string[], extra: string[]): string[] {
+  return Array.from(new Set([...base, ...extra].map(cleanFragment).filter(Boolean)));
+}
+
 function splitSentences(content: string): string[] {
   return content
     .replace(/\s+\band\s+I\s+/g, ". I ")
@@ -465,7 +612,7 @@ function normalizeWhat(text: string): string {
   return cleanFragment(text)
     .replace(/\bmy\s+/gi, "")
     .replace(/\b(?:last|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, "")
-    .replace(/\b(?:yesterday|today|in\s+[A-Z][a-z]+|on\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?)\b/gi, "")
+    .replace(/\b(?:yesterday|today|in\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)|on\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?)\b/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
@@ -484,7 +631,7 @@ function normalizeTravelWhat(sentence: string, target: string): string {
 }
 
 function leadingVerb(sentence: string): string {
-  const match = sentence.match(/\b(flew|drove|traveled|travelled|went|visited|attended|participated in|started|joined|began|enrolled|signed up)\b/i);
+  const match = sentence.match(/\b(flew|drove|traveled|travelled|went|visited|attended|participated in|volunteered at|walked in|ran in|started|joined|began|enrolled|signed up|set up|installed|configured|connected|hooked up|rearranged|redecorated|moved|placed|put up|hung|became a member|subscribed to|registered for|got|bought|ordered)\b/i);
   return match ? match[1].toLowerCase() : "did";
 }
 
@@ -510,6 +657,22 @@ function normalizePrecision(precision: EventPrecision | string): EventPrecision 
     default:
       return "relative";
   }
+}
+
+function parseCountToken(value: string): number {
+  const normalized = value.trim().toLowerCase();
+  const direct = Number.parseInt(normalized, 10);
+  if (Number.isFinite(direct)) return direct;
+  const numbers: Record<string, number> = {
+    a: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+  };
+  return numbers[normalized] ?? 1;
 }
 
 function startOfUtcDay(input: string): Date {

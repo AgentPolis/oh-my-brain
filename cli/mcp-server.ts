@@ -82,14 +82,14 @@ import { loadDecisionScenarios } from "./eval.js";
 import { buildDiffReport } from "./diff.js";
 import { formatQuizHistorySummary, summarizeQuizHistory } from "./quiz.js";
 import { ArchiveStore } from "../src/storage/archive.js";
-import { EventStore, type BrainEvent } from "../src/storage/events.js";
+import { EventStore, detectEventCategory, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
 import { loadHabits } from "./habit-detector.js";
 import { RelationStore } from "./relation-store.js";
 import { SchemaStore } from "./schema-detector.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.6.0";
+const SERVER_VERSION = "0.6.1";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -741,6 +741,10 @@ function handleBrainSearch(args: Record<string, unknown>): { content: ToolConten
   }
 
   if (query) {
+    const countQuery = parseCountQuery(query, events);
+    if (countQuery) {
+      return textResult(formatCountSearchResult(countQuery));
+    }
     const eventMatches = events.searchByKeyword(query);
     const archiveMatches = archive.searchByKeyword(query);
     return textResult(formatSearchResults(eventMatches, archiveMatches, `query: ${query}`, limit));
@@ -1163,6 +1167,85 @@ function formatSearchResults(
     );
   }
   return lines.join("\n");
+}
+
+function formatCountSearchResult(result: {
+  count: number;
+  label: string;
+  category?: string;
+  whatContains?: string;
+}): string {
+  const filters = [
+    result.category ? `category=${result.category}` : "",
+    result.whatContains ? `what~"${result.whatContains}"` : "",
+  ].filter(Boolean);
+  const suffix = filters.length > 0 ? ` (${filters.join(", ")})` : "";
+  return `Found ${result.count} event${result.count === 1 ? "" : "s"} matching ${result.label}${suffix}.`;
+}
+
+function parseCountQuery(
+  query: string,
+  events: EventStore
+):
+  | {
+      count: number;
+      label: string;
+      category?: string;
+      whatContains?: string;
+    }
+  | null {
+  const trimmed = query.trim();
+  if (!/^how many\b/i.test(trimmed)) return null;
+
+  const rangeMatch = trimmed.match(
+    /^how many\s+(.+?)\s+(?:from|between)\s+(.+?)\s+(?:to|and)\s+(.+)$/i
+  );
+  if (rangeMatch) {
+    const filters = deriveCountFilters(rangeMatch[1]);
+    const from = parseDateRange(rangeMatch[2]).from;
+    const to = parseDateRange(rangeMatch[3]).to;
+    return {
+      count: events.countInRange({ from, to, ...filters }),
+      label: `from ${rangeMatch[2]} to ${rangeMatch[3]}`,
+      ...filters,
+    };
+  }
+
+  const beforeMatch = trimmed.match(/^how many\s+(.+?)\s+before\s+(.+)$/i);
+  if (beforeMatch) {
+    const filters = deriveCountFilters(beforeMatch[1]);
+    const before = resolveCountBeforeBoundary(beforeMatch[2], events);
+    if (!before) return null;
+    return {
+      count: events.countBefore({ before, ...filters }),
+      label: `before ${beforeMatch[2]}`,
+      ...filters,
+    };
+  }
+
+  return null;
+}
+
+function deriveCountFilters(subject: string): { category?: string; whatContains?: string } {
+  const cleaned = subject
+    .trim()
+    .replace(/\b(events?|activities?|things?)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const category = detectEventCategory(cleaned);
+  if (category !== "other") {
+    return { category };
+  }
+  return cleaned ? { whatContains: cleaned.toLowerCase() } : {};
+}
+
+function resolveCountBeforeBoundary(reference: string, events: EventStore): string | null {
+  const trimmed = reference.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) || /^last\s+(week|month)$/i.test(trimmed)) {
+    return parseDateRange(trimmed).from;
+  }
+  const matches = events.searchByKeyword(trimmed).sort((a, b) => a.ts.localeCompare(b.ts));
+  return matches[0]?.ts.slice(0, 10) ?? null;
 }
 
 function formatRelationSearchResults(store: RelationStore, relation: string, limit: number): string {
