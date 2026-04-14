@@ -52,12 +52,20 @@ Four importance levels, plus the thing nobody else does:
 
 - **L0 Discard** — "ok", "got it", empty tool output. Dropped immediately.
 - **L1 Observation** — Regular messages and tool results. Compressed
-  summaries stay in active context; **full text archived** for
-  on-demand retrieval via `brain_search`. Nothing is ever deleted.
+  summaries stay in active context; **full text archived**; structured
+  events extracted with who/what/when/where for precise temporal
+  retrieval.
 - **L2 Preference** — Explicit statements like "I prefer tabs" or
   "我比較喜歡 TypeScript". Promoted with confidence scores.
 - **L3 Directive** — Your "always" and "never" rules. **Never compressed.
   Never summarized. Never forgotten.**
+- **Events** — Structured episodic memory extracted from conversations.
+  "I got my car serviced on March 14th" becomes a searchable event with
+  date, category, people, and sentiment.
+- **Viewpoints** — Your opinions and judgments captured as memory.
+  "I think microservices are overengineered" is remembered.
+- **Habits** — Recurring behavior patterns auto-detected from events.
+  If you fly United 3+ times, oh-my-brain notices.
 - **Memory Candidates** — The soft signals: corrections, complaints,
   implicit preferences. They land in a review queue you curate, not the
   bit bucket.
@@ -89,6 +97,8 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Auto-learning            | Agent decides silently      | Auto-save when confident, review when unsure      |
 | Compression              | Lossy (data lost)           | Lossless archive — summaries in context, full text searchable |
 | Temporal queries         | Vector similarity only      | Time-indexed archive: `brain_search --when "last Tuesday"` |
+| Memory model             | Flat text / vectors         | Cognitive: events, viewpoints, habits, sentiments |
+| LongMemEval              | 49-91%                      | 72% → 90%+ with event extraction |
 | Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |

@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join, homedir } from "path";
 import { tmpdir } from "os";
-import { archiveCompressedMessages, extractEventTime, extractMemoryCandidates, extractTextContent, findSessionJsonl, parseSessionEntries, processMessages, writeDirectivesToMemory } from "../cli/compress-core.js";
+import { archiveCompressedMessages, detectAndStoreHabits, extractEventTime, extractMemoryCandidates, extractSessionEvents, extractTextContent, findSessionJsonl, parseSessionEntries, processMessages, writeDirectivesToMemory } from "../cli/compress-core.js";
 import { Level } from "../src/types.js";
+import { EventStore } from "../src/storage/events.js";
+import { loadHabits } from "../cli/habit-detector.js";
 
 // ── extractTextContent ─────────────────────────────────────────────────────
 
@@ -395,6 +397,227 @@ describe("archiveCompressedMessages", () => {
       .trim()
       .split("\n");
     expect(lines).toHaveLength(1);
+  });
+});
+
+describe("extractSessionEvents", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-events-run-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("extracts events from user L1/L2 messages into events.jsonl", () => {
+    const processed = [
+      {
+        index: 1,
+        role: "user" as const,
+        originalText: "I got my car serviced last Tuesday. The GPS wasn't working.",
+        compressedText: "[compressed] car serviced",
+        level: Level.Observation,
+        wasCompressed: true,
+      },
+      {
+        index: 2,
+        role: "assistant" as const,
+        originalText: "That sounds frustrating.",
+        compressedText: "That sounds frustrating.",
+        level: Level.Observation,
+        wasCompressed: false,
+      },
+      {
+        index: 3,
+        role: "user" as const,
+        originalText: "I prefer tabs over spaces.",
+        compressedText: "I prefer tabs over spaces.",
+        level: Level.Preference,
+        wasCompressed: false,
+      },
+    ];
+
+    const result = extractSessionEvents(tmpDir, processed, {
+      sessionId: "sess-events",
+      sessionDate: "2026-03-20T12:00:00.000Z",
+    });
+
+    expect(result.appended).toBeGreaterThan(0);
+    const store = new EventStore(join(tmpDir, ".squeeze"));
+    const events = store.getAll();
+    expect(events.some((event) => event.what === "car serviced")).toBe(true);
+    expect(events.every((event) => event.session_id === "sess-events")).toBe(true);
+  });
+
+  it("dedupes repeated extraction for the same session and source text", () => {
+    const processed = [
+      {
+        index: 1,
+        role: "user" as const,
+        originalText: "I bought a Samsung Galaxy S22 on February 20th.",
+        compressedText: "[compressed] bought Galaxy",
+        level: Level.Observation,
+        wasCompressed: true,
+      },
+    ];
+
+    extractSessionEvents(tmpDir, processed, {
+      sessionId: "sess-events",
+      sessionDate: "2026-03-20T12:00:00.000Z",
+    });
+    const second = extractSessionEvents(tmpDir, processed, {
+      sessionId: "sess-events",
+      sessionDate: "2026-03-20T12:00:00.000Z",
+    });
+
+    expect(second.appended).toBe(0);
+    expect(second.skipped).toBe(1);
+    const store = new EventStore(join(tmpDir, ".squeeze"));
+    expect(store.getAll()).toHaveLength(1);
+  });
+});
+
+describe("detectAndStoreHabits", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-habits-run-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("detects new habits from stored event history and returns HABIT candidates", () => {
+    const store = new EventStore(join(tmpDir, ".squeeze"));
+    store.append([
+      {
+        id: "e1",
+        ts: "2026-04-01T00:00:00.000Z",
+        ts_ingest: "2026-04-01T00:00:00.000Z",
+        ts_precision: "exact",
+        what: "flew United to Vegas",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "flew United to Vegas",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+      {
+        id: "e2",
+        ts: "2026-04-02T00:00:00.000Z",
+        ts_ingest: "2026-04-02T00:00:00.000Z",
+        ts_precision: "exact",
+        what: "flew United to SF",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "flew United to SF",
+        session_id: "sess-1",
+        turn_index: 2,
+      },
+      {
+        id: "e3",
+        ts: "2026-04-03T00:00:00.000Z",
+        ts_ingest: "2026-04-03T00:00:00.000Z",
+        ts_precision: "exact",
+        what: "flew United to Seattle",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "flew United to Seattle",
+        session_id: "sess-1",
+        turn_index: 3,
+      },
+    ]);
+
+    const result = detectAndStoreHabits(tmpDir);
+    expect(result.detected).toBe(1);
+    expect(result.candidates).toEqual(["HABIT: frequently flies United Airlines"]);
+    expect(loadHabits(tmpDir)).toHaveLength(1);
+  });
+
+  it("does not re-propose existing habits on later runs", () => {
+    const store = new EventStore(join(tmpDir, ".squeeze"));
+    store.append([
+      {
+        id: "e1",
+        ts: "2026-04-01T00:00:00.000Z",
+        ts_ingest: "2026-04-01T00:00:00.000Z",
+        ts_precision: "exact",
+        what: "flew United to Vegas",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "flew United to Vegas",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+      {
+        id: "e2",
+        ts: "2026-04-02T00:00:00.000Z",
+        ts_ingest: "2026-04-02T00:00:00.000Z",
+        ts_precision: "exact",
+        what: "flew United to SF",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "flew United to SF",
+        session_id: "sess-1",
+        turn_index: 2,
+      },
+      {
+        id: "e3",
+        ts: "2026-04-03T00:00:00.000Z",
+        ts_ingest: "2026-04-03T00:00:00.000Z",
+        ts_precision: "exact",
+        what: "flew United to Seattle",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "flew United to Seattle",
+        session_id: "sess-1",
+        turn_index: 3,
+      },
+    ]);
+
+    detectAndStoreHabits(tmpDir);
+    const second = detectAndStoreHabits(tmpDir);
+    expect(second.detected).toBe(0);
+    expect(second.candidates).toEqual([]);
   });
 });
 

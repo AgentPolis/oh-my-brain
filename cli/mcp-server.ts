@@ -82,10 +82,12 @@ import { loadDecisionScenarios } from "./eval.js";
 import { buildDiffReport } from "./diff.js";
 import { formatQuizHistorySummary, summarizeQuizHistory } from "./quiz.js";
 import { ArchiveStore } from "../src/storage/archive.js";
+import { EventStore, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
+import { loadHabits } from "./habit-detector.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.4.0";
+const SERVER_VERSION = "0.5.0";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -133,8 +135,8 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "brain_recall",
     description:
-      "Recall active directives (L3) from the project brain. Call at session start. " +
-      "For specific dates, events, or conversation details, use brain_search instead. " +
+      "Recall active directives (L3) plus a compact event-memory summary from the project brain. Call at session start. " +
+      "For specific dates, events, people, categories, or conversation details, use brain_search instead. " +
       "AGENT BEHAVIOR: " +
       "(1) User says 'always/never/from now on/remember that' → call brain_remember directly. " +
       "(2) User corrects you clearly ('不對','wrong','I told you X') → call brain_remember with the correction as a rule. " +
@@ -166,9 +168,9 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "brain_search",
     description:
-      "Search archived conversation history by time or keyword. Use this when " +
-      "you need specific dates, events, decisions, or full conversation details " +
-      "that are no longer in active context.",
+      "Search structured events first, then archived conversation history. Use this when " +
+      "you need specific dates, events, people, categories, decisions, or full conversation details " +
+      "that are no longer in active context. Supports when/query/who/category filters.",
     inputSchema: {
       type: "object",
       properties: {
@@ -180,6 +182,14 @@ const TOOLS: ToolDefinition[] = [
         query: {
           type: "string",
           description: "Keyword search. Case-insensitive.",
+        },
+        who: {
+          type: "string",
+          description: "Person/entity match against structured events.",
+        },
+        category: {
+          type: "string",
+          description: "Structured event category filter.",
         },
         limit: {
           type: "number",
@@ -243,7 +253,7 @@ const TOOLS: ToolDefinition[] = [
     name: "brain_status",
     description:
       "Return counts and health info about the project brain: number of " +
-      "active directives, pending candidates, and the MEMORY.md path.",
+      "active directives, pending candidates, events, habits, viewpoints, and the MEMORY.md path.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -503,6 +513,27 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
       "Use brain_recall with type=<category> to load specific rules.",
       "Use brain_recall with mode=all to load everything.",
     ];
+    const events = new EventStore(join(projectRoot(), ".squeeze"));
+    const eventSummary = events.getSummary();
+    if (eventSummary.count > 0) {
+      const recent = events
+        .getAll()
+        .sort((a, b) => b.ts.localeCompare(a.ts))
+        .slice(0, 4)
+        .map((event) => `${formatDay(event.ts.slice(0, 10))} ${iconForCategory(event.category)} ${event.what}`)
+        .join(" | ");
+      const categoriesSummary = Object.entries(eventSummary.categories)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([category, count]) => `${category}(${count})`)
+        .join(" ");
+      lines.push("");
+      lines.push(
+        `Events (${eventSummary.count} total, ${eventSummary.earliest.slice(0, 10)} ~ ${eventSummary.latest.slice(0, 10)}):`
+      );
+      lines.push(`  Recent: ${recent}`);
+      lines.push(`  Categories: ${categoriesSummary}`);
+      lines.push("  Use brain_search --when/--query/--who/--category for details.");
+    }
     const archive = new ArchiveStore(join(projectRoot(), ".squeeze"));
     const archiveSummary = archive.getSummary();
     const timeline = new TimelineIndex(join(projectRoot(), ".squeeze"));
@@ -649,8 +680,10 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
 function handleBrainSearch(args: Record<string, unknown>): { content: ToolContent[] } {
   const root = projectRoot();
   const archive = new ArchiveStore(join(root, ".squeeze"));
-  const summary = archive.getSummary();
-  if (summary.count === 0) {
+  const events = new EventStore(join(root, ".squeeze"));
+  const archiveSummary = archive.getSummary();
+  const eventSummary = events.getSummary();
+  if (archiveSummary.count === 0 && eventSummary.count === 0) {
     return textResult("No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
   }
 
@@ -659,20 +692,39 @@ function handleBrainSearch(args: Record<string, unknown>): { content: ToolConten
     : 10;
   const when = typeof args.when === "string" ? args.when.trim() : "";
   const query = typeof args.query === "string" ? args.query.trim() : "";
+  const who = typeof args.who === "string" ? args.who.trim() : "";
+  const category = typeof args.category === "string" ? args.category.trim() : "";
 
   if (when) {
     const { from, to, label } = parseDateRange(when);
-    const entries = archive.searchByTime(from, to);
-    return textResult(formatArchiveResults(entries, limit, label));
+    const eventMatches = events.searchByTime(from, to);
+    const archiveMatches = eventMatches.length < 3 ? archive.searchByTime(from, to) : [];
+    return textResult(formatSearchResults(eventMatches, archiveMatches, label, limit));
   }
 
   if (query) {
-    const entries = archive.searchByKeyword(query, limit);
-    return textResult(formatArchiveResults(entries, limit, `query: ${query}`));
+    const eventMatches = events.searchByKeyword(query);
+    const archiveMatches = archive.searchByKeyword(query);
+    return textResult(formatSearchResults(eventMatches, archiveMatches, `query: ${query}`, limit));
+  }
+
+  if (who) {
+    const eventMatches = events.searchByPerson(who);
+    return textResult(formatSearchResults(eventMatches, [], `who: ${who}`, limit));
+  }
+
+  if (category) {
+    const eventMatches = events.searchByCategory(category);
+    return textResult(formatSearchResults(eventMatches, [], `category: ${category}`, limit));
   }
 
   const timeline = new TimelineIndex(join(root, ".squeeze"));
-  return textResult(timeline.toCompactString() || "No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
+  const timelineSummary = timeline.toCompactString();
+  const eventTimeline = events.toTimelineString(6);
+  if (eventTimeline && timelineSummary) {
+    return textResult(`${eventTimeline}\n\nArchive timeline:\n${timelineSummary}`);
+  }
+  return textResult(eventTimeline || timelineSummary || "No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
 }
 
 function handleBrainRetire(args: Record<string, unknown>): { content: ToolContent[] } {
@@ -926,6 +978,14 @@ function handleBrainStatus(): { content: ToolContent[] } {
   const archive = new ArchiveStore(join(root, ".squeeze"));
   const archiveSummary = archive.getSummary();
   const archiveSizeKb = Math.round(archive.getSizeBytes() / 1024);
+  const events = new EventStore(join(root, ".squeeze"));
+  const eventSummary = events.getSummary();
+  const eventCategories = Object.entries(eventSummary.categories)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([category, count]) => `${category}(${count})`)
+    .join(" ");
+  const habits = loadHabits(root);
+  const viewpointsCaptured = events.searchByCategory("viewpoint").length;
   const directiveMetadata = loadDirectiveMetadata(root).filter((directive) =>
     activeBullets.some((bullet) => bullet.body === directive.value)
   );
@@ -967,6 +1027,10 @@ function handleBrainStatus(): { content: ToolContent[] } {
         : "null"
     }`,
     `archive_size_kb: ${archiveSizeKb}`,
+    `events_total: ${eventSummary.count}`,
+    `events_categories: ${eventCategories || "none"}`,
+    `habits_detected: ${habits.length}`,
+    `viewpoints_captured: ${viewpointsCaptured}`,
     `token_budget.total_directives: ${activeDirectiveCount}`,
     `token_budget.estimated_tokens: ${estimatedTokens}`,
     `token_budget.startup_cost_tokens: 100`,
@@ -1020,21 +1084,40 @@ function parseDateRange(input: string): { from: string; to: string; label: strin
   };
 }
 
-function formatArchiveResults(
-  entries: ReturnType<ArchiveStore["readAll"]>,
-  limit: number,
-  label: string
+function formatSearchResults(
+  eventMatches: BrainEvent[],
+  archiveMatches: ReturnType<ArchiveStore["readAll"]>,
+  label: string,
+  limit: number
 ): string {
-  if (entries.length === 0) {
-    return `No archived results found for ${label}.`;
+  if (eventMatches.length === 0 && archiveMatches.length === 0) {
+    return `No results found for ${label}.`;
   }
 
-  const selected = entries.slice(0, limit);
-  const blocks = selected.map((entry) => {
-    const stamp = entry.ts.replace("T", " ").slice(0, 16);
-    return `[${stamp}] ${entry.role}: ${entry.content}`;
-  });
-  return `Found ${entries.length} entr${entries.length === 1 ? "y" : "ies"} (${label}):\n\n${blocks.join("\n\n")}`;
+  const lines: string[] = [];
+  if (eventMatches.length > 0 || archiveMatches.length > 0) {
+    lines.push(
+      `Found ${eventMatches.length} event${eventMatches.length === 1 ? "" : "s"} + ${archiveMatches.length} archived message${archiveMatches.length === 1 ? "" : "s"} (${label}):`
+    );
+  }
+  if (eventMatches.length > 0) {
+    lines.push("");
+    lines.push("EVENTS:");
+    lines.push(
+      ...eventMatches.slice(0, limit).map((event) => `  ${formatEventLine(event)}`)
+    );
+  }
+  if (archiveMatches.length > 0) {
+    lines.push("");
+    lines.push("ARCHIVED (additional context):");
+    lines.push(
+      ...archiveMatches.slice(0, Math.min(5, limit)).map((entry) => {
+        const stamp = entry.ts.replace("T", " ").slice(0, 16);
+        return `  [${stamp}] ${entry.role}: ${entry.content}`;
+      })
+    );
+  }
+  return lines.join("\n");
 }
 
 function formatLocalDate(date: Date): string {
@@ -1048,6 +1131,43 @@ function formatDay(day: string): string {
   const [_, month, date] = day.split("-");
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${monthNames[Number(month) - 1] ?? day}${date}`;
+}
+
+function formatEventLine(event: BrainEvent): string {
+  const day = event.ts.slice(0, 10);
+  const precision = event.ts_precision;
+  const detail = event.detail ? ` — ${event.detail}` : "";
+  const sentiment = event.sentiment ? ` (${event.sentiment})` : "";
+  return `[${formatDay(day)}, ${precision}] ${iconForCategory(event.category)} ${event.what}${detail}${sentiment}`;
+}
+
+function iconForCategory(category: string): string {
+  switch (category) {
+    case "vehicle":
+      return "🚗";
+    case "travel":
+      return "✈️";
+    case "shopping":
+      return "🛒";
+    case "work":
+      return "💼";
+    case "health":
+      return "🏥";
+    case "social":
+      return "👥";
+    case "entertainment":
+      return "🎬";
+    case "events":
+      return "📅";
+    case "pets":
+      return "🐕";
+    case "viewpoint":
+      return "💭";
+    case "sentiment":
+      return "❤️";
+    default:
+      return "📦";
+  }
 }
 
 function shiftLocalDays(date: Date, days: number, edge: "start" | "end"): string {

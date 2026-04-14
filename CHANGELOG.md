@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.5.0] - 2026-04-14
+
+**Cognitive memory upgrade: events, viewpoints, habits, and sentiment.**
+This release adds structured episodic memory extraction on top of the
+archive model from v0.4.0. User messages now produce searchable events
+with time precision, people, categories, sentiment, and source
+provenance; `brain_search` retrieves those events first; `brain_recall`
+surfaces them in summary mode; and recurring patterns become reviewable
+habit candidates.
+
+### Added
+
+- Append-only event store at `.squeeze/events.jsonl` with time/category/
+  person search and compact timeline rendering.
+- Heuristic event extractor for user messages, including relative-date
+  resolution, best-effort people/place capture, Chinese patterns,
+  viewpoint extraction, and standalone sentiment capture.
+- Habit detector with persisted `.squeeze/habits.json` storage and
+  `HABIT:` candidate generation from repeated event patterns.
+- `brain_search` filters for `who` and `category`, plus event-first
+  retrieval output with compact emoji-tagged summaries.
+
+### Changed
+
+- Claude Code compression now extracts events before archival,
+  dedupes repeated session reprocessing by source message, and scans
+  event history for new habits.
+- `brain_recall` summary mode now includes recent events and event
+  category breakdowns.
+- `brain_status` now reports `events_total`, `events_categories`,
+  `habits_detected`, and `viewpoints_captured`.
+- CLI / MCP / package version strings bumped to `0.5.0`.
+
+### Docs
+
+- README now documents structured events, viewpoints, habits, and the
+  cognitive memory model positioning.
+
 ## [0.4.0] - 2026-04-14
 
 **Memory architecture v2: compression is archival, not deletion.**

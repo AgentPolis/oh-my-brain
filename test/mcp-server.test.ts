@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { handleRequest } from "../cli/mcp-server.js";
@@ -7,6 +7,7 @@ import { writeDirectivesToMemory } from "../cli/compress-core.js";
 import { Level } from "../src/types.js";
 import { saveLinks } from "../cli/links-store.js";
 import { ArchiveStore } from "../src/storage/archive.js";
+import { EventStore } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
 
 describe("MCP server", () => {
@@ -112,6 +113,27 @@ describe("MCP server", () => {
 
   it("brain_recall summary includes archive preview when timeline exists", () => {
     callTool("brain_remember", { text: "Always validate input" });
+    const events = new EventStore(join(tmp, ".squeeze"));
+    events.append([
+      {
+        id: "e1",
+        ts: "2026-04-06T10:00:00.000Z",
+        ts_ingest: "2026-04-06T10:01:00.000Z",
+        ts_precision: "exact",
+        what: "bought training pads for Luna",
+        detail: "",
+        category: "pets",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "I bought training pads for Luna.",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+    ]);
     const archive = new ArchiveStore(join(tmp, ".squeeze"));
     archive.append([
       {
@@ -142,8 +164,11 @@ describe("MCP server", () => {
 
     const response = callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Events (1 total, 2026-04-06 ~ 2026-04-06):");
+    expect(text).toContain("Recent: Apr06 🐕 bought training pads for Luna");
     expect(text).toContain("Archived history: 2 conversations (2026-04-12 ~ 2026-04-13)");
     expect(text).toContain("Recent: Apr13 (1 msgs:");
+    expect(text).toContain("Use brain_search --when/--query/--who/--category for details.");
     expect(text).toContain("Use brain_search to look up specific dates or topics.");
   });
 
@@ -158,10 +183,12 @@ describe("MCP server", () => {
     const listResponse = handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
     const tools = (listResponse.result as { tools: { name: string; description: string }[] }).tools;
     const recallTool = tools.find((t) => t.name === "brain_recall");
+    const searchTool = tools.find((t) => t.name === "brain_search");
     expect(recallTool!.description).toContain("brain_remember");
     expect(recallTool!.description).toContain("brain_search");
     expect(recallTool!.description).toContain("brain_candidates");
     expect(recallTool!.description).toContain("AGENT BEHAVIOR");
+    expect(searchTool!.description).toContain("who/category");
   });
 
   it("brain_recall mode=all returns the full directive list", () => {
@@ -216,9 +243,30 @@ describe("MCP server", () => {
     expect(text).toContain("No archived conversations yet");
   });
 
-  it("brain_search searches archive by exact day", () => {
-    const archivePath = join(tmp, ".squeeze");
-    const archive = new ArchiveStore(archivePath);
+  it("brain_search returns structured events before archive hits by exact day", () => {
+    const squeezePath = join(tmp, ".squeeze");
+    const events = new EventStore(squeezePath);
+    events.append([
+      {
+        id: "e1",
+        ts: "2026-04-06T14:32:00.000Z",
+        ts_ingest: "2026-04-06T14:33:00.000Z",
+        ts_precision: "exact",
+        what: "car serviced",
+        detail: "GPS malfunction found",
+        category: "vehicle",
+        who: ["Tom"],
+        where: "",
+        related_to: [],
+        sentiment: "frustrated",
+        viewpoint: "",
+        insight: "",
+        source_text: "I just got my car serviced and the GPS still fails.",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+    ]);
+    const archive = new ArchiveStore(squeezePath);
     archive.append([
       {
         id: "a1",
@@ -235,12 +283,36 @@ describe("MCP server", () => {
 
     const response = callTool("brain_search", { when: "2026-04-06" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
-    expect(text).toContain("Found 1 entry");
-    expect(text).toContain("car serviced");
+    expect(text).toContain("Found 1 event + 1 archived message (2026-04-06):");
+    expect(text).toContain("EVENTS:");
+    expect(text).toContain("🚗 car serviced");
+    expect(text).toContain("ARCHIVED (additional context):");
   });
 
-  it("brain_search searches archive by keyword", () => {
-    const archive = new ArchiveStore(join(tmp, ".squeeze"));
+  it("brain_search searches events before archive by keyword", () => {
+    const squeezePath = join(tmp, ".squeeze");
+    const events = new EventStore(squeezePath);
+    events.append([
+      {
+        id: "e2",
+        ts: "2026-04-07T09:00:00.000Z",
+        ts_ingest: "2026-04-07T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "car serviced",
+        detail: "GPS module issue",
+        category: "vehicle",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "The car service issue may be related to the GPS module.",
+        session_id: "sess-2",
+        turn_index: 2,
+      },
+    ]);
+    const archive = new ArchiveStore(squeezePath);
     archive.append([
       {
         id: "a2",
@@ -257,8 +329,67 @@ describe("MCP server", () => {
 
     const response = callTool("brain_search", { query: "car service" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
-    expect(text).toContain("query: car service");
+    expect(text).toContain("Found 1 event + 1 archived message (query: car service):");
+    expect(text).toContain("EVENTS:");
     expect(text).toContain("GPS module");
+  });
+
+  it("brain_search supports who lookups from event data", () => {
+    const events = new EventStore(join(tmp, ".squeeze"));
+    events.append([
+      {
+        id: "e3",
+        ts: "2026-04-06T14:32:00.000Z",
+        ts_ingest: "2026-04-06T14:33:00.000Z",
+        ts_precision: "exact",
+        what: "car serviced",
+        detail: "GPS malfunction found",
+        category: "vehicle",
+        who: ["mechanic Tom"],
+        where: "",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "my mechanic Tom said the GPS was dead",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+    ]);
+
+    const response = callTool("brain_search", { who: "Tom" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Found 1 event + 0 archived messages (who: Tom):");
+    expect(text).toContain("car serviced");
+  });
+
+  it("brain_search supports category lookups from event data", () => {
+    const events = new EventStore(join(tmp, ".squeeze"));
+    events.append([
+      {
+        id: "e4",
+        ts: "2026-04-07T09:00:00.000Z",
+        ts_ingest: "2026-04-07T09:01:00.000Z",
+        ts_precision: "exact",
+        what: "flew to Las Vegas",
+        detail: "conference trip",
+        category: "travel",
+        who: [],
+        where: "Las Vegas",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "I flew to Las Vegas for a conference.",
+        session_id: "sess-2",
+        turn_index: 2,
+      },
+    ]);
+
+    const response = callTool("brain_search", { category: "travel" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Found 1 event + 0 archived messages (category: travel):");
+    expect(text).toContain("✈️ flew to Las Vegas");
   });
 
   it("brain_search parses relative dates and respects limits", () => {
@@ -295,7 +426,7 @@ describe("MCP server", () => {
 
     const response = callTool("brain_search", { when: "last week", limit: 1 });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
-    expect(text).toContain("Found 2 entries (last week)");
+    expect(text).toContain("Found 0 events + 2 archived messages (last week):");
     const noteMatches = text.match(/Recent deployment note/g) ?? [];
     expect(noteMatches).toHaveLength(1);
   });
@@ -399,6 +530,61 @@ describe("MCP server", () => {
   it("brain_status returns counts and health fields", () => {
     callTool("brain_remember", { text: "test directive" });
     callTool("brain_candidates", { action: "add", text: "pending candidate" });
+    const events = new EventStore(join(tmp, ".squeeze"));
+    events.append([
+      {
+        id: "e1",
+        ts: "2026-04-06T10:00:00.000Z",
+        ts_ingest: "2026-04-06T10:01:00.000Z",
+        ts_precision: "exact",
+        what: "viewpoint",
+        detail: "microservices are overengineered",
+        category: "viewpoint",
+        who: [],
+        where: "",
+        related_to: [],
+        sentiment: "negative",
+        viewpoint: "",
+        insight: "",
+        source_text: "I think microservices are overengineered",
+        session_id: "sess-1",
+        turn_index: 1,
+      },
+      {
+        id: "e2",
+        ts: "2026-04-07T10:00:00.000Z",
+        ts_ingest: "2026-04-07T10:01:00.000Z",
+        ts_precision: "exact",
+        what: "flew to Las Vegas",
+        detail: "",
+        category: "travel",
+        who: [],
+        where: "Las Vegas",
+        related_to: [],
+        sentiment: "",
+        viewpoint: "",
+        insight: "",
+        source_text: "I flew to Las Vegas",
+        session_id: "sess-2",
+        turn_index: 2,
+      },
+    ]);
+    writeFileSync(
+      join(tmp, ".squeeze", "habits.json"),
+      JSON.stringify({
+        version: 1,
+        habits: [
+          {
+            id: "h1",
+            pattern: "frequently flies United Airlines",
+            confidence: 0.8,
+            evidence: ["e2"],
+            first_seen: "2026-04-07T10:00:00.000Z",
+            occurrences: 4,
+          },
+        ],
+      })
+    );
     const archive = new ArchiveStore(join(tmp, ".squeeze"));
     archive.append([
       {
@@ -426,6 +612,10 @@ describe("MCP server", () => {
     expect(text).toContain("archive_entries: 1");
     expect(text).toContain("archive_date_range: 2026-04-12 ~ 2026-04-12");
     expect(text).toContain("archive_size_kb:");
+    expect(text).toContain("events_total: 2");
+    expect(text).toContain("events_categories: travel(1) viewpoint(1)");
+    expect(text).toContain("habits_detected: 1");
+    expect(text).toContain("viewpoints_captured: 1");
     expect(text).toContain("token_budget.total_directives: 1");
   });
 

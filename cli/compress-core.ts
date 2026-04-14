@@ -25,7 +25,10 @@ import { scanForTypeCandidates } from "./types-store.js";
 import { jaccard, scanForLinkCandidates, tokenSet } from "./links-store.js";
 import { withLock } from "./lockfile.js";
 import { ArchiveStore, extractTags } from "../src/storage/archive.js";
+import { EventStore, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
+import { extractEvents } from "./event-extractor.js";
+import { detectHabits, loadHabits, saveHabits } from "./habit-detector.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -103,6 +106,16 @@ interface ArchiveWriteResult {
   appended: number;
   skipped: number;
   bounds: { earliest: string; latest: string } | null;
+}
+
+interface EventWriteResult {
+  appended: number;
+  skipped: number;
+}
+
+interface HabitWriteResult {
+  detected: number;
+  candidates: string[];
 }
 
 const MEMORY_CANDIDATE_PATTERNS = [
@@ -874,6 +887,78 @@ function hashArchiveIdentity(sessionId: string, role: string, content: string): 
     .digest("hex");
 }
 
+export function extractSessionEvents(
+  projectRoot: string,
+  processed: ProcessedMessage[],
+  options: {
+    sessionId: string;
+    sessionDate: string;
+  }
+): EventWriteResult {
+  const store = new EventStore(join(projectRoot, ".squeeze"));
+  const existingHashes = new Set(
+    store
+      .getAll()
+      .filter((event) => event.session_id === options.sessionId)
+      .map((event) => hashEventIdentity(options.sessionId, event.source_text))
+  );
+
+  const events: BrainEvent[] = [];
+  let skipped = 0;
+  for (const message of processed) {
+    if (message.role !== "user") continue;
+    if (message.level === Level.Discard) continue;
+
+    const sourceHash = hashEventIdentity(options.sessionId, message.originalText);
+    if (existingHashes.has(sourceHash)) {
+      skipped += 1;
+      continue;
+    }
+
+    const extracted = extractEvents(
+      { role: message.role, content: message.originalText },
+      {
+        sessionId: options.sessionId,
+        turnIndex: message.index,
+        sessionDate: options.sessionDate,
+        previousMessage:
+          message.index > 0 ? processed.find((item) => item.index === message.index - 1)?.originalText : undefined,
+      }
+    );
+    if (extracted.length > 0) {
+      events.push(...extracted);
+      existingHashes.add(sourceHash);
+    }
+  }
+
+  store.append(events);
+  return {
+    appended: events.length,
+    skipped,
+  };
+}
+
+function hashEventIdentity(sessionId: string, sourceText: string): string {
+  return createHash("sha256")
+    .update(`${sessionId}\u0000${sourceText}`)
+    .digest("hex");
+}
+
+export function detectAndStoreHabits(projectRoot: string): HabitWriteResult {
+  const events = new EventStore(join(projectRoot, ".squeeze")).getAll();
+  const existingHabits = loadHabits(projectRoot);
+  const newHabits = detectHabits(events, existingHabits);
+  if (newHabits.length > 0) {
+    saveHabits(projectRoot, [...existingHabits, ...newHabits]);
+  } else if (existingHabits.length > 0) {
+    saveHabits(projectRoot, existingHabits);
+  }
+  return {
+    detected: newHabits.length,
+    candidates: newHabits.map((habit) => `HABIT: ${habit.pattern}`),
+  };
+}
+
 function parseMaxArchiveMbArg(args: string[]): number | undefined {
   const index = args.indexOf("--max-archive-mb");
   if (index === -1) return undefined;
@@ -889,7 +974,7 @@ export async function main() {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("oh-my-brain 0.4.0\n");
+    process.stdout.write("oh-my-brain 0.5.0\n");
     return;
   }
 
@@ -929,7 +1014,12 @@ export async function main() {
     sessionStart,
     maxArchiveMb,
   });
-  const memoryCandidates = extractMemoryCandidates(processed);
+  const eventResult = extractSessionEvents(cwd, processed, {
+    sessionId,
+    sessionDate: sessionStart,
+  });
+  const habitResult = detectAndStoreHabits(cwd);
+  const memoryCandidates = [...extractMemoryCandidates(processed), ...habitResult.candidates];
 
   // Persist candidates across runs so `squeeze-candidates list` can show them
   // and the user can approve/reject later. Previously, candidates only lived
@@ -976,6 +1066,17 @@ export async function main() {
       `[brain] archived ${archiveResult.appended} message${archiveResult.appended === 1 ? "" : "s"}`
       + `${archiveResult.skipped > 0 ? ` (${archiveResult.skipped} deduped)` : ""}, `
       + `timeline: ${archiveResult.bounds?.earliest ?? "n/a"} ~ ${archiveResult.bounds?.latest ?? "n/a"}\n`
+    );
+  }
+  if (eventResult.appended > 0 || eventResult.skipped > 0) {
+    process.stderr.write(
+      `[brain] extracted ${eventResult.appended} event${eventResult.appended === 1 ? "" : "s"}`
+      + `${eventResult.skipped > 0 ? ` (${eventResult.skipped} deduped)` : ""}\n`
+    );
+  }
+  if (habitResult.detected > 0) {
+    process.stderr.write(
+      `[brain] detected ${habitResult.detected} habit${habitResult.detected === 1 ? "" : "s"}\n`
     );
   }
   if (newCandidates.length > 0) {
