@@ -79,6 +79,7 @@ import {
   markDirectivesReferenced,
 } from "../src/storage/directives.js";
 import { loadDecisionScenarios } from "./eval.js";
+import { buildDiffReport } from "./diff.js";
 import { formatQuizHistorySummary, summarizeQuizHistory } from "./quiz.js";
 import { ArchiveStore } from "../src/storage/archive.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
@@ -269,6 +270,21 @@ const TOOLS: ToolDefinition[] = [
             "random",
           ],
           description: "Scenario category. Default: random.",
+        },
+      },
+    },
+  },
+  {
+    name: "brain_diff",
+    description:
+      "Show what the brain learned recently. Returns a summary of new directives, retired rules, pending candidates, growth rate, and archive stats for a given time period.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        since: {
+          type: "string",
+          description:
+            "Time period. Default: '7 days'. Examples: '3 days', '2026-04-01', 'last month'.",
         },
       },
     },
@@ -1098,6 +1114,12 @@ function handleBrainQuiz(args: Record<string, unknown>): { content: ToolContent[
   );
 }
 
+function handleBrainDiff(args: Record<string, unknown>): { content: ToolContent[] } {
+  const since = typeof args.since === "string" ? args.since : "7 days";
+  const report = buildDiffReport(projectRoot(), since);
+  return textResult(JSON.stringify(report, null, 2));
+}
+
 function callTool(name: string, args: Record<string, unknown>): { content: ToolContent[] } {
   switch (name) {
     case "brain_remember":
@@ -1114,6 +1136,8 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
       return handleBrainStatus();
     case "brain_quiz":
       return handleBrainQuiz(args);
+    case "brain_diff":
+      return handleBrainDiff(args);
     case "brain_undo_last":
       return handleBrainUndoLast();
     case "brain_why":

@@ -33,6 +33,7 @@ Commands:
   audit            Print the markdown audit for this project (alias: brain-audit)
   candidates       Review queue for Memory Candidates (alias: brain-candidates)
   eval             Run Decision Replay evaluation
+  diff             Show what the brain learned recently
   init             Scan the project and bootstrap initial memory
   import           Import directives from existing AI rule files
   mcp              Start the MCP server over stdio (alias: brain-mcp)
@@ -128,6 +129,12 @@ async function main(): Promise<number> {
     const delegated = [process.argv[0], "quiz", ...args.slice(1)];
     const mod = await import("./quiz.js");
     return await mod.runQuizCli(delegated, process.cwd());
+  }
+
+  if (cmd === "diff") {
+    const delegated = [process.argv[0], "diff", ...args.slice(1)];
+    const mod = await import("./diff.js");
+    return await mod.runDiffCli(delegated, process.cwd());
   }
 
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);
