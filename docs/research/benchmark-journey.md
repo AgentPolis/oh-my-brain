@@ -149,21 +149,60 @@ judge 誤判:            1 題 — 答對但格式不匹配
 
 ---
 
-## v0.6.1 + 推理式 Prompt (2026-04-14, 跑中)
+## v0.6.1 + 推理式 Prompt (2026-04-14)
 
-**改動：** 只改了一行 prompt：
+**改動：** Prompt 從「不知道就說 I don't know」改成「有線索就推理，
+語氣保持誠實（就我記得）」。
+
+**結果：judge 說 70% (35/50)，實際 ~82%**
+
+**發生了什麼：** 推理式 prompt 讓 agent 用中文回答（因為 prompt
+裡有「就我記得」），但 LongMemEval 的 expected answer 是英文。
+Judge 比對中英文時大量誤判。
+
+手動驗證 6 題被 judge 判錯但實際正確：
+```
+Expected: "GPS system not functioning correctly"
+Got: "GPS 系統出了狀況" → 正確，語言不匹配
+
+Expected: "Fixing the fence"
+Got: "你先完成的是修圍欄" → 正確，語言不匹配
+
+Expected: "Five months ago"
+Got: "算起來大概是 5 個月前訂的" → 正確，語言不匹配
+```
+
+**正面發現：**
+- 0 個「I don't know」（之前 9 個）— agent 更願意推理了
+- 0 個 parse error
+- 回答帶推理過程（「從對話順序看」「如果嚴格看到貨日」）
+
+**學到的：** benchmark prompt 語言必須跟 expected answer 一致。
+推理式 prompt 的方向是對的，但要加 "Answer in English"。
+
+---
+
+## 官方結果 (2026-04-14)
+
+**v0.6.1 LongMemEval oracle dataset, 50 題 temporal-reasoning：82% (41/50)**
+
+這是最可靠的數字：50/50 都有回答，0 error，英文回答，codex judge。
 
 ```
-Before: "If the answer is not in the memory, say 'I don't know.'"
+版本     改動                          分數        Delta
+───────────────────────────────────────────────────────
+v0.3.1   規則+偏好                     74% (37/50)  baseline
+v0.4.0   +archive                      72% (36/50)  -2
+v0.5.0   +events+viewpoints+habits     76% (38/50)  +4
+v0.6.1   +time precision+patterns      82% (41/50)  +6
+───────────────────────────────────────────────────────
+                                 總提升: +8 pts
 
-After:  "Use all available clues to reason, even if not 100% certain.
-         Say '就我記得' or 'Based on what I recall' and give your best answer.
-         Only say 'I don't know' if there are truly zero relevant clues."
+vs 競品:
+  Mem0:        49%    (+33 pts)
+  MemPalace:   84.2%  (-2 pts, AAAK mode; 96.6% disputed)
+  Hindsight:   91.4%  (-9 pts, 用知識圖譜)
 ```
-
-**預估：** 82% → 88-90%。5 題「有線索但不敢答」應該會翻對。
-
-**結果：** ⏳ 跑中
 
 ---
 
