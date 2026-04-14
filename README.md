@@ -66,6 +66,12 @@ Four importance levels, plus the thing nobody else does:
   "I think microservices are overengineered" is remembered.
 - **Habits** — Recurring behavior patterns auto-detected from events.
   If you fly United 3+ times, oh-my-brain notices.
+- **Relations** — Who you trust and why. "Tom recommended Redis, it
+  worked well" builds trust. Agent considers trust when weighing
+  conflicting advice.
+- **Schemas** — Your decision frameworks, auto-detected from habits.
+  "Code Review: error handling → naming → tests" is how YOU do
+  reviews. The agent follows your framework, not a generic one.
 - **Memory Candidates** — The soft signals: corrections, complaints,
   implicit preferences. They land in a review queue you curate, not the
   bit bucket.
@@ -84,6 +90,19 @@ Four importance levels, plus the thing nobody else does:
 When you switch from Claude Code to Codex to Cursor, all of the above
 travel with you via a portable `MEMORY.md` file plus an MCP server.
 
+### Cognitive coverage
+
+| Memory Type | What | Example | Since |
+|-------------|------|---------|-------|
+| Directive | Explicit rules | "Always use TypeScript" | v0.3 |
+| Preference | Stated preferences | "I prefer tabs" | v0.3 |
+| Event | Episodic memory | "Car serviced Mar 14, GPS broke" | v0.5 |
+| Viewpoint | Opinions | "Microservices are overengineered" | v0.5 |
+| Sentiment | Emotions | "Frustrated with deployment" | v0.5 |
+| Habit | Behavior patterns | "Always writes tests first" | v0.5 |
+| Relation | Trust chains | "Trust Tom on tech, verify Alice on arch" | v0.6 |
+| Schema | Decision frameworks | "Code review: errors → naming → tests" | v0.6 |
+
 ## How it's different
 
 |                          | Other memory layers         | oh-my-brain                                        |
@@ -97,7 +116,7 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Auto-learning            | Agent decides silently      | Auto-save when confident, review when unsure      |
 | Compression              | Lossy (data lost)           | Lossless archive — summaries in context, full text searchable |
 | Temporal queries         | Vector similarity only      | Time-indexed archive: `brain_search --when "last Tuesday"` |
-| Memory model             | Flat text / vectors         | Cognitive: events, viewpoints, habits, sentiments |
+| Memory model             | Flat text / vectors         | Cognitive: events, viewpoints, habits, sentiments, relations, schemas |
 | LongMemEval              | 49-91%                      | 72% → 90%+ with event extraction |
 | Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |

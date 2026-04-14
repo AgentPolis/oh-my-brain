@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.6.0] - 2026-04-14
+
+**Cognitive memory upgrade: relations and schemas.**
+This release completes the v0.6 cognitive framework by adding mutable
+trust memory and inferred decision frameworks on top of the event /
+habit system from v0.5.0. The brain now remembers who you trust in
+which domain, surfaces that context in MCP recall/search, and proposes
+framework-shaped schema memories from repeated action-oriented habits
+plus matching directives.
+
+### Added
+
+- Mutable relation store at `.squeeze/relations.json` with trust /
+  influence detection, domain-scoped levels, and compact trust summary
+  rendering.
+- Schema store at `.squeeze/schemas.json` with conservative framework
+  detection from co-occurring habits + directives, confidence scoring,
+  and compact framework rendering.
+- `brain_search` filters for `relation` (`trusted`, `verify`, `all`)
+  and `schema` category lookups.
+
+### Changed
+
+- `brain_recall` summary mode now includes people you trust / need to
+  verify plus detected frameworks.
+- `brain_status` now reports `relations_total`,
+  `relations_high_trust`, and `schemas_total`.
+- Claude Code compression now updates relations from user messages,
+  detects schemas from stored habits, and proposes `SCHEMA:` memory
+  candidates when a new framework is inferred.
+- CLI / MCP / package version strings bumped to `0.6.0`.
+
+### Docs
+
+- README now documents Relations and Schemas in the core feature list
+  plus a full cognitive coverage table.
+- `docs/research/cognitive-memory-framework.md` now marks Relation and
+  Schema coverage as shipped.
+
 ## [0.5.0] - 2026-04-14
 
 **Cognitive memory upgrade: events, viewpoints, habits, and sentiment.**

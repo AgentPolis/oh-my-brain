@@ -2,8 +2,8 @@
 
 > **Your personal world model that every AI agent grounds itself in.**
 >
-> v0.5.0 in progress. Cognitive memory is implemented: events, viewpoints,
-> habits, and event-first recall/search are live.
+> v0.6.0 in progress. Cognitive memory is implemented: events, viewpoints,
+> habits, relations, schemas, and event-first recall/search are live.
 > Pending: final publish prep and live post-release validation.
 >
 > Updated: 2026-04-14
@@ -70,7 +70,7 @@
   ```bash
   npm publish --access public
   ```
-  確認 `oh-my-brain@0.5.0` 出現在 npmjs.com
+  確認 `oh-my-brain@0.6.0` 出現在 npmjs.com
 
 - [ ] **搶 namespace（低成本高保護）**
   - 註冊 `ohmybrain.dev` domain（~$12/年）

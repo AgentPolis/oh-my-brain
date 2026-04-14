@@ -85,9 +85,11 @@ import { ArchiveStore } from "../src/storage/archive.js";
 import { EventStore, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
 import { loadHabits } from "./habit-detector.js";
+import { RelationStore } from "./relation-store.js";
+import { SchemaStore } from "./schema-detector.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.5.0";
+const SERVER_VERSION = "0.6.0";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -170,7 +172,7 @@ const TOOLS: ToolDefinition[] = [
     description:
       "Search structured events first, then archived conversation history. Use this when " +
       "you need specific dates, events, people, categories, decisions, or full conversation details " +
-      "that are no longer in active context. Supports when/query/who/category filters.",
+      "that are no longer in active context. Supports when/query/who/category/relation/schema filters.",
     inputSchema: {
       type: "object",
       properties: {
@@ -190,6 +192,15 @@ const TOOLS: ToolDefinition[] = [
         category: {
           type: "string",
           description: "Structured event category filter.",
+        },
+        relation: {
+          type: "string",
+          description: "Search by relationship. Example: 'trusted' returns high-trust people.",
+          enum: ["trusted", "verify", "all"],
+        },
+        schema: {
+          type: "string",
+          description: "Get a decision framework by category. Example: 'code-review'.",
         },
         limit: {
           type: "number",
@@ -253,7 +264,7 @@ const TOOLS: ToolDefinition[] = [
     name: "brain_status",
     description:
       "Return counts and health info about the project brain: number of " +
-      "active directives, pending candidates, events, habits, viewpoints, and the MEMORY.md path.",
+      "active directives, pending candidates, events, habits, viewpoints, relations, schemas, and the MEMORY.md path.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -507,14 +518,28 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
     const categories = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([typeId, count]) => `${typeId} (${count})`);
+    const events = new EventStore(join(projectRoot(), ".squeeze"));
+    const relations = new RelationStore(join(projectRoot(), ".squeeze"));
+    const schemas = new SchemaStore(join(projectRoot(), ".squeeze"));
+    const habits = loadHabits(projectRoot());
+    const eventSummary = events.getSummary();
+    const viewpointsCaptured = events.searchByCategory("viewpoint").length;
     const lines = [
-      `You have ${activeBullets.length} active directives across ${categories.length} categories:`,
-      `  ${categories.join(" | ")}`,
+      `You have ${activeBullets.length} directives, ${eventSummary.count} events, ${viewpointsCaptured} viewpoints, ${habits.length} habits.`,
+      `Directive categories: ${categories.join(" | ")}`,
       "Use brain_recall with type=<category> to load specific rules.",
       "Use brain_recall with mode=all to load everything.",
     ];
-    const events = new EventStore(join(projectRoot(), ".squeeze"));
-    const eventSummary = events.getSummary();
+    const peopleSummary = summarizePeople(relations);
+    if (peopleSummary) {
+      lines.push(peopleSummary);
+      lines.push("Use brain_search --relation trusted for trusted people.");
+    }
+    const frameworkSummary = summarizeFrameworks(schemas);
+    if (frameworkSummary) {
+      lines.push(frameworkSummary);
+      lines.push('Use brain_search --schema "code-review" for your code review framework.');
+    }
     if (eventSummary.count > 0) {
       const recent = events
         .getAll()
@@ -681,11 +706,10 @@ function handleBrainSearch(args: Record<string, unknown>): { content: ToolConten
   const root = projectRoot();
   const archive = new ArchiveStore(join(root, ".squeeze"));
   const events = new EventStore(join(root, ".squeeze"));
+  const relations = new RelationStore(join(root, ".squeeze"));
+  const schemas = new SchemaStore(join(root, ".squeeze"));
   const archiveSummary = archive.getSummary();
   const eventSummary = events.getSummary();
-  if (archiveSummary.count === 0 && eventSummary.count === 0) {
-    return textResult("No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
-  }
 
   const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
     ? Math.max(1, Math.floor(args.limit))
@@ -694,6 +718,20 @@ function handleBrainSearch(args: Record<string, unknown>): { content: ToolConten
   const query = typeof args.query === "string" ? args.query.trim() : "";
   const who = typeof args.who === "string" ? args.who.trim() : "";
   const category = typeof args.category === "string" ? args.category.trim() : "";
+  const relation = typeof args.relation === "string" ? args.relation.trim() : "";
+  const schemaCategory = typeof args.schema === "string" ? args.schema.trim() : "";
+
+  if (relation) {
+    return textResult(formatRelationSearchResults(relations, relation, limit));
+  }
+
+  if (schemaCategory) {
+    return textResult(formatSchemaSearchResults(schemas, schemaCategory));
+  }
+
+  if (archiveSummary.count === 0 && eventSummary.count === 0) {
+    return textResult("No archived conversations yet. Use oh-my-brain for a few sessions to build history.");
+  }
 
   if (when) {
     const { from, to, label } = parseDateRange(when);
@@ -985,6 +1023,10 @@ function handleBrainStatus(): { content: ToolContent[] } {
     .map(([category, count]) => `${category}(${count})`)
     .join(" ");
   const habits = loadHabits(root);
+  const relations = new RelationStore(join(root, ".squeeze"));
+  const relationSummary = relations.getSummary();
+  const schemas = new SchemaStore(join(root, ".squeeze"));
+  const schemaSummary = schemas.getSummary();
   const viewpointsCaptured = events.searchByCategory("viewpoint").length;
   const directiveMetadata = loadDirectiveMetadata(root).filter((directive) =>
     activeBullets.some((bullet) => bullet.body === directive.value)
@@ -1031,6 +1073,9 @@ function handleBrainStatus(): { content: ToolContent[] } {
     `events_categories: ${eventCategories || "none"}`,
     `habits_detected: ${habits.length}`,
     `viewpoints_captured: ${viewpointsCaptured}`,
+    `relations_total: ${relationSummary.total}`,
+    `relations_high_trust: ${relationSummary.high_trust}`,
+    `schemas_total: ${schemaSummary.total}`,
     `token_budget.total_directives: ${activeDirectiveCount}`,
     `token_budget.estimated_tokens: ${estimatedTokens}`,
     `token_budget.startup_cost_tokens: 100`,
@@ -1118,6 +1163,66 @@ function formatSearchResults(
     );
   }
   return lines.join("\n");
+}
+
+function formatRelationSearchResults(store: RelationStore, relation: string, limit: number): string {
+  const normalized = relation.trim().toLowerCase();
+  const matches =
+    normalized === "trusted"
+      ? store.getTrusted()
+      : normalized === "verify"
+        ? store.getAll().filter((item) => item.relation_type === "trust" && item.level === "low")
+        : store.getAll();
+  if (matches.length === 0) {
+    return `No relation results found for ${normalized}.`;
+  }
+
+  const heading =
+    normalized === "trusted"
+      ? "Trusted people"
+      : normalized === "verify"
+        ? "People to verify"
+        : "All relations";
+  return [
+    `${heading} (${matches.length}):`,
+    ...matches
+      .slice(0, limit)
+      .map((item) => `  ${item.person} (${item.domain}: ${item.level})${item.notes ? ` — ${item.notes}` : ""}`),
+  ].join("\n");
+}
+
+function formatSchemaSearchResults(store: SchemaStore, category: string): string {
+  const matches = store.getByCategory(category);
+  if (matches.length === 0) {
+    return `No schema found for category "${category}".`;
+  }
+
+  const schema = matches[0];
+  return [
+    `${schema.name} (${schema.category}, confidence ${schema.confidence.toFixed(2)}):`,
+    `  ${schema.description}`,
+    "Steps:",
+    ...schema.steps.map((step, index) => `  ${index + 1}. ${step}`),
+  ].join("\n");
+}
+
+function summarizePeople(store: RelationStore): string {
+  const visible = store
+    .getAll()
+    .filter((relation) => relation.relation_type === "trust" && (relation.level === "high" || relation.level === "low"))
+    .slice(0, 4);
+  if (visible.length === 0) return "";
+  return `People: ${visible
+    .map((relation) => `${relation.person} (${relation.domain}: ${relation.level === "low" ? "verify" : `${relation.level} trust`})`)
+    .join(" | ")}`;
+}
+
+function summarizeFrameworks(store: SchemaStore): string {
+  const visible = store.getAll().slice(0, 4);
+  if (visible.length === 0) return "";
+  return `Frameworks: ${visible
+    .map((schema) => `${schema.name.replace(/\s+Framework$/, "")} (${schema.steps.length} steps)`)
+    .join(" | ")}`;
 }
 
 function formatLocalDate(date: Date): string {

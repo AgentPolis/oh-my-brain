@@ -29,6 +29,8 @@ import { EventStore, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
 import { extractEvents } from "./event-extractor.js";
 import { detectHabits, loadHabits, saveHabits } from "./habit-detector.js";
+import { detectRelationSignals, RelationStore, updateRelation, upsertInfluenceRelation } from "./relation-store.js";
+import { detectSchemas, SchemaStore } from "./schema-detector.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -115,6 +117,18 @@ interface EventWriteResult {
 
 interface HabitWriteResult {
   detected: number;
+  candidates: string[];
+}
+
+interface RelationWriteResult {
+  updated: number;
+  total: number;
+  highTrust: number;
+}
+
+interface SchemaWriteResult {
+  detected: number;
+  total: number;
   candidates: string[];
 }
 
@@ -959,6 +973,56 @@ export function detectAndStoreHabits(projectRoot: string): HabitWriteResult {
   };
 }
 
+export function detectAndStoreRelations(projectRoot: string, processed: ProcessedMessage[]): RelationWriteResult {
+  const store = new RelationStore(join(projectRoot, ".squeeze"));
+  let updated = 0;
+  for (const message of processed) {
+    if (message.role !== "user") continue;
+    const signals = detectRelationSignals(message.originalText);
+    for (const signal of signals) {
+      const before = JSON.stringify(store.getByPerson(signal.person));
+      if (signal.type === "influence") {
+        upsertInfluenceRelation(store, signal.person, signal.domain, signal.evidence);
+      } else {
+        updateRelation(store, signal.person, signal.type, signal.domain, signal.evidence);
+      }
+      const after = JSON.stringify(store.getByPerson(signal.person));
+      if (before !== after) updated += 1;
+    }
+  }
+
+  const summary = store.getSummary();
+  return {
+    updated,
+    total: summary.total,
+    highTrust: summary.high_trust,
+  };
+}
+
+export function detectAndStoreSchemas(projectRoot: string): SchemaWriteResult {
+  const habits = loadHabits(projectRoot);
+  if (habits.length < 2) {
+    const existing = new SchemaStore(join(projectRoot, ".squeeze")).getSummary();
+    return { detected: 0, total: existing.total, candidates: [] };
+  }
+
+  const memoryPath = join(projectRoot, "MEMORY.md");
+  const directives = existsSync(memoryPath)
+    ? Array.from(parseExistingDirectives(readFileSync(memoryPath, "utf8")))
+    : [];
+  const store = new SchemaStore(join(projectRoot, ".squeeze"));
+  const newSchemas = detectSchemas(habits, directives, store.getAll());
+  for (const schema of newSchemas) {
+    store.upsert(schema);
+  }
+  const summary = store.getSummary();
+  return {
+    detected: newSchemas.length,
+    total: summary.total,
+    candidates: newSchemas.map((schema) => `SCHEMA: "${schema.name}" — ${schema.steps.join(" → ")}`),
+  };
+}
+
 function parseMaxArchiveMbArg(args: string[]): number | undefined {
   const index = args.indexOf("--max-archive-mb");
   if (index === -1) return undefined;
@@ -974,7 +1038,7 @@ export async function main() {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("oh-my-brain 0.5.0\n");
+    process.stdout.write("oh-my-brain 0.6.0\n");
     return;
   }
 
@@ -1019,7 +1083,13 @@ export async function main() {
     sessionDate: sessionStart,
   });
   const habitResult = detectAndStoreHabits(cwd);
-  const memoryCandidates = [...extractMemoryCandidates(processed), ...habitResult.candidates];
+  const relationResult = detectAndStoreRelations(cwd, processed);
+  const schemaResult = detectAndStoreSchemas(cwd);
+  const memoryCandidates = [
+    ...extractMemoryCandidates(processed),
+    ...habitResult.candidates,
+    ...schemaResult.candidates,
+  ];
 
   // Persist candidates across runs so `squeeze-candidates list` can show them
   // and the user can approve/reject later. Previously, candidates only lived
@@ -1077,6 +1147,18 @@ export async function main() {
   if (habitResult.detected > 0) {
     process.stderr.write(
       `[brain] detected ${habitResult.detected} habit${habitResult.detected === 1 ? "" : "s"}\n`
+    );
+  }
+  if (relationResult.updated > 0 || relationResult.total > 0) {
+    process.stderr.write(
+      `[brain] relations: ${relationResult.total} total, ${relationResult.highTrust} high trust`
+      + `${relationResult.updated > 0 ? ` (${relationResult.updated} updated)` : ""}\n`
+    );
+  }
+  if (schemaResult.detected > 0 || schemaResult.total > 0) {
+    process.stderr.write(
+      `[brain] schemas: ${schemaResult.total} total`
+      + `${schemaResult.detected > 0 ? ` (${schemaResult.detected} new)` : ""}\n`
     );
   }
   if (newCandidates.length > 0) {

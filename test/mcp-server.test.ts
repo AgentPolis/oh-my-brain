@@ -6,6 +6,8 @@ import { handleRequest } from "../cli/mcp-server.js";
 import { writeDirectivesToMemory } from "../cli/compress-core.js";
 import { Level } from "../src/types.js";
 import { saveLinks } from "../cli/links-store.js";
+import { RelationStore } from "../cli/relation-store.js";
+import { SchemaStore } from "../cli/schema-detector.js";
 import { ArchiveStore } from "../src/storage/archive.js";
 import { EventStore } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
@@ -106,7 +108,7 @@ describe("MCP server", () => {
 
     const response = callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
-    expect(text).toContain("You have 2 active directives across");
+    expect(text).toContain("You have 2 directives, 0 events, 0 viewpoints, 0 habits.");
     expect(text).toContain("Use brain_recall with mode=all to load everything.");
     // Agent instruction moved to tool description — not in response body
   });
@@ -170,6 +172,54 @@ describe("MCP server", () => {
     expect(text).toContain("Recent: Apr13 (1 msgs:");
     expect(text).toContain("Use brain_search --when/--query/--who/--category for details.");
     expect(text).toContain("Use brain_search to look up specific dates or topics.");
+  });
+
+  it("brain_recall summary includes people and frameworks", () => {
+    callTool("brain_remember", { text: "Well-tested code is non-negotiable." });
+    const relations = new RelationStore(join(tmp, ".squeeze"));
+    relations.upsert({
+      id: "r1",
+      person: "Tom",
+      relation_type: "trust",
+      domain: "tech",
+      level: "high",
+      evidence: ["Tom recommended Redis and it worked."],
+      last_updated: "2026-04-14T00:00:00.000Z",
+      notes: "recommended Redis, worked well",
+    });
+    relations.upsert({
+      id: "r2",
+      person: "Alice",
+      relation_type: "trust",
+      domain: "architecture",
+      level: "low",
+      evidence: ["Alice caused a bug."],
+      last_updated: "2026-04-14T00:00:00.000Z",
+      notes: "past suggestion caused bug",
+    });
+    const schemas = new SchemaStore(join(tmp, ".squeeze"));
+    schemas.upsert({
+      id: "s1",
+      name: "Code Review Framework",
+      description: "How you approach code-review decisions",
+      steps: ["always check error handling", "always verify test coverage", "always review naming"],
+      evidence: {
+        habits: ["h1", "h2"],
+        directives: ["Well-tested code is non-negotiable."],
+        events: ["e1", "e2"],
+      },
+      confidence: 0.85,
+      category: "code-review",
+      first_detected: "2026-04-14T00:00:00.000Z",
+      last_updated: "2026-04-14T00:00:00.000Z",
+    });
+
+    const response = callTool("brain_recall");
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("People: Alice (architecture: verify) | Tom (tech: high trust)");
+    expect(text).toContain("Frameworks: Code Review (3 steps)");
+    expect(text).toContain("Use brain_search --relation trusted for trusted people.");
+    expect(text).toContain('Use brain_search --schema "code-review" for your code review framework.');
   });
 
   it("brain_recall returns empty state when no directives exist", () => {
@@ -392,6 +442,49 @@ describe("MCP server", () => {
     expect(text).toContain("✈️ flew to Las Vegas");
   });
 
+  it("brain_search supports relation lookups", () => {
+    const relations = new RelationStore(join(tmp, ".squeeze"));
+    relations.upsert({
+      id: "r1",
+      person: "Tom",
+      relation_type: "trust",
+      domain: "tech",
+      level: "high",
+      evidence: ["Tom recommended Redis and it worked."],
+      last_updated: "2026-04-14T00:00:00.000Z",
+      notes: "recommended Redis, worked well",
+    });
+
+    const response = callTool("brain_search", { relation: "trusted" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Trusted people (1):");
+    expect(text).toContain("Tom (tech: high)");
+  });
+
+  it("brain_search supports schema lookups", () => {
+    const schemas = new SchemaStore(join(tmp, ".squeeze"));
+    schemas.upsert({
+      id: "s1",
+      name: "Code Review Framework",
+      description: "How you approach code-review decisions",
+      steps: ["always check error handling", "always verify test coverage"],
+      evidence: {
+        habits: ["h1", "h2"],
+        directives: ["Well-tested code is non-negotiable."],
+        events: ["e1", "e2"],
+      },
+      confidence: 0.85,
+      category: "code-review",
+      first_detected: "2026-04-14T00:00:00.000Z",
+      last_updated: "2026-04-14T00:00:00.000Z",
+    });
+
+    const response = callTool("brain_search", { schema: "code-review" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Code Review Framework (code-review, confidence 0.85):");
+    expect(text).toContain("1. always check error handling");
+  });
+
   it("brain_search parses relative dates and respects limits", () => {
     const archive = new ArchiveStore(join(tmp, ".squeeze"));
     const now = new Date();
@@ -599,6 +692,33 @@ describe("MCP server", () => {
         tags: ["status"],
       },
     ]);
+    const relations = new RelationStore(join(tmp, ".squeeze"));
+    relations.upsert({
+      id: "r1",
+      person: "Tom",
+      relation_type: "trust",
+      domain: "tech",
+      level: "high",
+      evidence: ["Tom recommended Redis and it worked."],
+      last_updated: "2026-04-14T00:00:00.000Z",
+      notes: "recommended Redis, worked well",
+    });
+    const schemas = new SchemaStore(join(tmp, ".squeeze"));
+    schemas.upsert({
+      id: "s1",
+      name: "Code Review Framework",
+      description: "How you approach code-review decisions",
+      steps: ["always check error handling", "always verify test coverage"],
+      evidence: {
+        habits: ["h1", "h2"],
+        directives: ["Well-tested code is non-negotiable."],
+        events: ["e1", "e2"],
+      },
+      confidence: 0.85,
+      category: "code-review",
+      first_detected: "2026-04-14T00:00:00.000Z",
+      last_updated: "2026-04-14T00:00:00.000Z",
+    });
 
     const status = callTool("brain_status");
     const text = (status.result as { content: { text: string }[] }).content[0].text;
@@ -616,6 +736,9 @@ describe("MCP server", () => {
     expect(text).toContain("events_categories: travel(1) viewpoint(1)");
     expect(text).toContain("habits_detected: 1");
     expect(text).toContain("viewpoints_captured: 1");
+    expect(text).toContain("relations_total: 1");
+    expect(text).toContain("relations_high_trust: 1");
+    expect(text).toContain("schemas_total: 1");
     expect(text).toContain("token_budget.total_directives: 1");
   });
 

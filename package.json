@@ -1,6 +1,6 @@
 {
   "name": "oh-my-brain",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The second brain that follows you across every agent. Importance-aware memory for Claude Code, Codex, and MCP-compatible tools. (Formerly squeeze-claw.)",
   "type": "module",
   "main": "dist/index.js",

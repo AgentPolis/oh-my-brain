@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { detectEventCategory, type BrainEvent, type EventPrecision, type EventSentiment } from "../src/storage/events.js";
+export { detectEventCategory } from "../src/storage/events.js";
 
 export interface ExtractEventMessage {
   role: string;

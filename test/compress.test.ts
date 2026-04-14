@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join, homedir } from "path";
 import { tmpdir } from "os";
-import { archiveCompressedMessages, detectAndStoreHabits, extractEventTime, extractMemoryCandidates, extractSessionEvents, extractTextContent, findSessionJsonl, parseSessionEntries, processMessages, writeDirectivesToMemory } from "../cli/compress-core.js";
+import { archiveCompressedMessages, detectAndStoreHabits, detectAndStoreRelations, detectAndStoreSchemas, extractEventTime, extractMemoryCandidates, extractSessionEvents, extractTextContent, findSessionJsonl, parseSessionEntries, processMessages, writeDirectivesToMemory } from "../cli/compress-core.js";
 import { Level } from "../src/types.js";
 import { EventStore } from "../src/storage/events.js";
 import { loadHabits } from "../cli/habit-detector.js";
+import { RelationStore } from "../cli/relation-store.js";
+import { SchemaStore } from "../cli/schema-detector.js";
 
 // ── extractTextContent ─────────────────────────────────────────────────────
 
@@ -616,6 +618,144 @@ describe("detectAndStoreHabits", () => {
 
     detectAndStoreHabits(tmpDir);
     const second = detectAndStoreHabits(tmpDir);
+    expect(second.detected).toBe(0);
+    expect(second.candidates).toEqual([]);
+  });
+});
+
+describe("detectAndStoreRelations", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-relations-run-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("detects trust relations from user messages", () => {
+    const result = detectAndStoreRelations(tmpDir, [
+      {
+        index: 1,
+        role: "user",
+        originalText: "Tom's recommendation worked well for our Redis setup.",
+        compressedText: "Tom's recommendation worked well for our Redis setup.",
+        level: Level.Observation,
+        wasCompressed: false,
+      },
+    ]);
+
+    const store = new RelationStore(join(tmpDir, ".squeeze"));
+    expect(result.updated).toBe(1);
+    expect(store.getTrusted("tech")).toHaveLength(0);
+    expect(store.getByPerson("Tom")[0].level).toBe("medium");
+  });
+
+  it("is idempotent for repeated session runs", () => {
+    const processed = [
+      {
+        index: 1,
+        role: "user" as const,
+        originalText: "Tom's recommendation worked well for our Redis setup.",
+        compressedText: "Tom's recommendation worked well for our Redis setup.",
+        level: Level.Observation,
+        wasCompressed: false,
+      },
+    ];
+
+    detectAndStoreRelations(tmpDir, processed);
+    const second = detectAndStoreRelations(tmpDir, processed);
+    const store = new RelationStore(join(tmpDir, ".squeeze"));
+    expect(second.updated).toBe(0);
+    expect(store.getByPerson("Tom")[0].evidence).toHaveLength(1);
+  });
+});
+
+describe("detectAndStoreSchemas", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-schemas-run-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("detects schemas when habits and directives support a framework", () => {
+    mkdirSync(join(tmpDir, ".squeeze"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "MEMORY.md"),
+      "## oh-my-brain directives (2026-04-14) [source:test]\n\n- [test] Well-tested code is non-negotiable in review.\n"
+    );
+    writeFileSync(
+      join(tmpDir, ".squeeze", "habits.json"),
+      JSON.stringify({
+        version: 1,
+        habits: [
+          {
+            id: "h1",
+            pattern: "always check error handling in reviews",
+            confidence: 0.9,
+            evidence: ["e1", "e2"],
+            first_seen: "2026-04-01T00:00:00.000Z",
+            occurrences: 4,
+          },
+          {
+            id: "h2",
+            pattern: "always verify test coverage in reviews",
+            confidence: 0.8,
+            evidence: ["e3", "e4"],
+            first_seen: "2026-04-01T00:00:00.000Z",
+            occurrences: 4,
+          },
+        ],
+      })
+    );
+
+    const result = detectAndStoreSchemas(tmpDir);
+    const store = new SchemaStore(join(tmpDir, ".squeeze"));
+    expect(result.detected).toBe(1);
+    expect(result.candidates).toEqual([
+      'SCHEMA: "Code Review Framework" — always check error handling in reviews → always verify test coverage in reviews',
+    ]);
+    expect(store.getByCategory("code-review")).toHaveLength(1);
+  });
+
+  it("does not re-propose schemas once stored", () => {
+    mkdirSync(join(tmpDir, ".squeeze"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "MEMORY.md"),
+      "## oh-my-brain directives (2026-04-14) [source:test]\n\n- [test] Well-tested code is non-negotiable in review.\n"
+    );
+    writeFileSync(
+      join(tmpDir, ".squeeze", "habits.json"),
+      JSON.stringify({
+        version: 1,
+        habits: [
+          {
+            id: "h1",
+            pattern: "always check error handling in reviews",
+            confidence: 0.9,
+            evidence: ["e1", "e2"],
+            first_seen: "2026-04-01T00:00:00.000Z",
+            occurrences: 4,
+          },
+          {
+            id: "h2",
+            pattern: "always verify test coverage in reviews",
+            confidence: 0.8,
+            evidence: ["e3", "e4"],
+            first_seen: "2026-04-01T00:00:00.000Z",
+            occurrences: 4,
+          },
+        ],
+      })
+    );
+
+    detectAndStoreSchemas(tmpDir);
+    const second = detectAndStoreSchemas(tmpDir);
     expect(second.detected).toBe(0);
     expect(second.candidates).toEqual([]);
   });
