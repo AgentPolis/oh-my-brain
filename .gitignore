@@ -8,3 +8,4 @@ dist/
 .DS_Store
 PRD.md
 docs/launch-post-draft.md
+.npmrc
