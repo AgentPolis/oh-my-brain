@@ -146,6 +146,7 @@ export interface SqueezeConfig {
   memoryInjectionCapPercent: number;
   preferenceConfidenceThreshold: number;
   dagSummaryLOD: boolean;
+  subagentPersonalContextMaxTokens: number;
 
   circuitBreaker: {
     classifierFailThreshold: number;
@@ -176,6 +177,7 @@ export const DEFAULT_CONFIG: SqueezeConfig = {
   memoryInjectionCapPercent: 15,
   preferenceConfidenceThreshold: 0.5,
   dagSummaryLOD: true,
+  subagentPersonalContextMaxTokens: 2000,
 
   circuitBreaker: {
     classifierFailThreshold: 3,
@@ -259,3 +261,45 @@ export interface ContextEngine {
  * Usage: api.registerContextEngine('oh-my-brain', ohMyBrainFactory)
  */
 export type ContextEngineFactory = (config: Record<string, unknown>) => ContextEngine;
+
+// ── Outcome Loop ────────────────────────────────────────────────
+
+export interface OutcomeRecord {
+  id: string;
+  result: "failure";
+  failure_mode: string;
+  context: string;
+  lesson: string;
+  session_id: string;
+  timestamp: string;
+}
+
+// ── Procedure ───────────────────────────────────────────────────
+
+export interface ProcedureStep {
+  order: number;
+  action: string;
+  tool?: string;
+}
+
+export interface ProcedureRecord {
+  id: string;
+  title: string;
+  trigger: string;
+  steps: ProcedureStep[];
+  pitfalls: string[];
+  verification: string[];
+  status: "candidate" | "approved" | "archived";
+  source_session_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Growth One-liner ────────────────────────────────────────────
+
+export interface SessionStats {
+  new_directives: number;
+  new_preferences: number;
+  new_outcomes: OutcomeRecord[];
+  new_procedures: number;
+}
