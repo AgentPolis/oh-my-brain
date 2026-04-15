@@ -1,4 +1,7 @@
-# squeeze-claw Release Plan
+# Legacy Release Plan (`squeeze-claw`)
+
+> Archived launch checklist from the pre-rename era.
+> Keep for project history; do not use as the current release source of truth.
 
 This is the minimum launch checklist for the current `0.1.x` line.
 

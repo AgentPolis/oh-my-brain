@@ -1,11 +1,16 @@
 # oh-my-brain 🧠
 
-**Your personal world model that every AI agent grounds itself in.**
+**A second brain that helps every AI agent understand you, work like you, and make fewer mistakes.**
 
-oh-my-brain is the personal version of what Palantir Foundry is for
-enterprises: a typed, living model of how you work — your rules, your
-preferences, your domain knowledge — that AI agents read from and write
-back to. Not a memory layer. Not a vector store. A **world model** built
+oh-my-brain gives Claude Code, Codex, Cursor, Windsurf, and MCP tools a
+shared memory that survives context resets, session boundaries, and
+agent switches.
+
+Instead of trapping memory inside one tool, it keeps your rules,
+preferences, working style, and corrections in a portable brain you can
+inspect, edit, and carry everywhere.
+
+Not a memory layer. Not a vector store. A **personal world model** built
 from the corrections you give in real conversations, with you as the
 final approver of what gets kept.
 
@@ -117,7 +122,7 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Compression              | Lossy (data lost)           | Lossless archive — summaries in context, full text searchable |
 | Temporal queries         | Vector similarity only      | Time-indexed archive: `brain_search --when "last Tuesday"` |
 | Memory model             | Flat text / vectors         | Cognitive: events, viewpoints, habits, sentiments, relations, schemas |
-| LongMemEval              | 49-91%                      | 72% → 90%+ with event extraction |
+| LongMemEval              | 49-91%                      | 92% (46/50 temporal reasoning, metadata-clean rerun) |
 | Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
@@ -134,6 +139,19 @@ how the self-growing ontology works.
 ```bash
 npm install -g oh-my-brain
 ```
+
+## 5-minute proof
+
+If you only try one thing, try this:
+
+```bash
+mkdir oh-my-brain-demo && cd oh-my-brain-demo
+printf '%s\n' '- Always use TypeScript strict mode' > MEMORY.md
+oh-my-brain recall
+```
+
+That is the core promise in miniature: portable, inspectable memory
+that survives agent switches because it lives with your project.
 
 After install, you get these binaries:
 
@@ -289,35 +307,68 @@ No database lock-in, no cloud, no API keys.
 
 ## Benchmarks (honest version)
 
-We're making this section deliberately narrow because our previous
-numbers were over-confident.
+We publish real numbers on real datasets. No cherry-picked demos.
 
-### What we measure
+### LongMemEval (ICLR 2025)
 
-| Scenario                                              | Result               | Caveat                  |
-| ----------------------------------------------------- | -------------------- | ----------------------- |
-| Real Claude Code session replay (research-heavy)      | **74.1% — 82.1%** char reduction | Heuristic: chars ÷ 4 estimates tokens; not provider billing |
-| Real Claude Code session replay (workspace scanning)  | **30.7%** char reduction | Session-shape dependent |
-| Directive retention after 100+ turns of mixed content | **100%** (10 of 10)  | Deterministic eval; in-memory classifier |
-| Cross-agent handoff (6-scenario integration test)     | **6 of 6 pass**      | See [cross-agent-handoff.test.ts](test/cross-agent-handoff.test.ts) |
+Temporal-reasoning subset, 50 questions. Full 500-question run coming.
 
-Reproduce these locally with:
+| System | Score | Notes |
+| ------ | ----- | ----- |
+| Mem0 | 49% | Vector retrieval only |
+| **oh-my-brain v0.3.1** | **74%** (37/50) | Rules + preferences + lazy loading |
+| oh-my-brain v0.5.0 | 76% (38/50) | + events, viewpoints, habits |
+| oh-my-brain v0.6.1 | 82% (41/50) | + time precision, pattern expansion |
+| MemPalace (AAAK) | 84.2% | Spatial memory metaphor |
+| Raw dump (no oh-my-brain) | 86% (43/50) | Full transcript, no compression |
+| **oh-my-brain v0.7.0** | **92%** (46/50) | Renamed repo, metadata-clean rerun on oracle temporal subset |
+| Hindsight | 91.4% | Knowledge graph, full dataset |
+| MemPalace (uncompressed, disputed) | 96.6% | See their paper for methodology |
 
-```bash
-npm run test:run -- eval/
-npm run test:run -- cross-agent-handoff
-npm run test:run -- directive-retention
-```
+**Error analysis (remaining misses):** mostly incomplete event coverage
+and event-to-event duration reasoning. In other words: not "the brain
+forgot everything," but "the brain remembered the events and still
+missed one timeline link."
+
+Sample size is 50 questions. We're running the full 500-question suite
+next. We'll update these numbers when we have them.
+
+For public reproducibility, each rerun should publish:
+
+- repo URL + commit hash
+- benchmark runner version / commit
+- dataset + subset (`oracle`, `temporal-reasoning`, 50 questions)
+- raw hypotheses JSONL
+- report JSON with environment metadata
+
+See [`docs/research/benchmark-journey.md`](docs/research/benchmark-journey.md)
+for every version, every decision, and every score.
+
+### Compression
+
+| Scenario | Result | Caveat |
+| -------- | ------ | ------ |
+| Real session replay (research-heavy) | **74.1% — 82.1%** char reduction | Heuristic: chars / 4 estimates tokens |
+| Real session replay (workspace scanning) | **30.7%** char reduction | Session-shape dependent |
+
+### Memory integrity
+
+| Scenario | Result |
+| -------- | ------ |
+| Directive retention after 100+ turns | **100%** (10/10) |
+| Cross-agent handoff | **6/6 pass** |
+| Startup cost | **~49 tokens** (vs ~2,000 without lazy loading) |
 
 ### What we don't measure yet
 
-- **Provider-side billing savings.** We estimate tokens as `chars ÷ 4`.
+- **Provider-side billing savings.** We estimate tokens as `chars / 4`.
   Real savings depend on model, tokenizer, and session shape.
-- **Quality impact in live work.** We have no live telemetry yet, only
-  eval suites and replays. If you want to help run a trial, open an issue.
+- **Full 500-question LongMemEval.** 50-question subset only. Coming soon.
+- **Decision Replay at scale.** Framework exists, 25 scenarios defined,
+  full eval pending.
 
 See [`docs/real-session-replay-eval.md`](docs/real-session-replay-eval.md)
-for the full replay methodology and
+for the compression replay methodology and
 [`docs/context-structure-and-intervention.md`](docs/context-structure-and-intervention.md)
 for an honest breakdown of what oh-my-brain can and can't influence.
 
@@ -368,24 +419,26 @@ recommend:
 3. Use `brain-candidates` review queue for anything uncertain
 4. Run `brain-audit` regularly to inspect recent memory writes
 
-## v0.2 status
+## Current status (v0.7.0)
 
-**Phase 1: credibility pass — shipped**
+**Shipped:**
 
-- [x] Importance-aware classification (L0–L3)
-- [x] Memory Candidates review queue (`brain-candidates`)
-- [x] MEMORY.md write lock (cross-process safe)
-- [x] `brain-candidates retire` for superseding stale directives
-- [x] L2 preferences wired into ingest
-- [x] Cross-agent handoff integration test
-- [x] MCP server (`brain-mcp`)
-- [x] Full rename from `squeeze-claw` to `oh-my-brain`
+- [x] Importance-aware classification (L0-L3) with auto-learning
+- [x] Memory Candidates review queue with confidence-based auto-save
+- [x] Cognitive memory: events, viewpoints, habits, relations, schemas
+- [x] Self-growing ontology (types + links + auto-consolidation)
+- [x] Knowledge graph with multi-hop traversal (PGLite)
+- [x] MCP server (9 tools over stdio JSON-RPC)
+- [x] Cross-agent handoff (Claude Code, Codex, Cursor, Windsurf)
+- [x] Decision Replay eval framework (`oh-my-brain eval`)
+- [x] Offline growth loop (`brain-consolidate`)
+- [x] 594 tests passing
 
-**Phase 2: launch prep — in progress**
+**Next:**
 
-- [ ] Live trial telemetry
+- [ ] Full 500-question LongMemEval run
+- [ ] Live telemetry (opt-in, local only)
 - [ ] LLM-backed classifier for ambiguous cases
-- [ ] Repetition-based L2 promotion
 - [ ] Landing page at ohmybrain.dev
 
 See [`TODOS.md`](TODOS.md) for the full roadmap.
@@ -410,8 +463,8 @@ to migrate to Supabase or any managed PostgreSQL.
   Multi-hop traversal finds connections you didn't know existed.
 - **PostgreSQL-native** — TEXT[], JSONB, TIMESTAMPTZ, recursive
   CTE, proper indexes. Not SQLite pretending to be a database.
-- **Enterprise-ready** — Same schema works on PGLite (local),
-  PostgreSQL (self-hosted), or Supabase (managed cloud).
+- **One schema, multiple backends** — Same schema works on PGLite
+  (local), PostgreSQL (self-hosted), or Supabase (managed cloud).
 
 ## Runtime requirements
 

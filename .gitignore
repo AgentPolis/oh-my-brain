@@ -1,7 +1,10 @@
 node_modules/
 dist/
+.squeeze/
 *.db
 *.db-wal
 *.db-shm
 *.tsbuildinfo
 .DS_Store
+PRD.md
+docs/launch-post-draft.md

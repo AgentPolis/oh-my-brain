@@ -20,11 +20,11 @@ npm install
 npm run test:run  # full suite should pass
 ```
 
-If `better-sqlite3` throws NODE_MODULE_VERSION errors, your Node ABI
-doesn't match what the module was built against. Fix:
+oh-my-brain v0.7 uses PGLite, so there are no native database bindings
+to rebuild. If setup fails, first verify you're on Node 20-25 and try:
 
 ```bash
-npm rebuild better-sqlite3
+npm run verify
 ```
 
 ## Development
@@ -39,8 +39,8 @@ npm rebuild better-sqlite3
 
 ```
 src/
-├── index.ts              # Public exports (BrainEngine + factories)
-├── engine.ts             # SqueezeContextEngine (main class — kept for compat)
+├── index.ts              # Public exports and factory entrypoints
+├── engine.ts             # Main engine implementation
 ├── types.ts              # All type definitions + defaults
 ├── circuit-breaker.ts    # Degraded mode detection
 ├── triage/
@@ -48,7 +48,10 @@ src/
 │   ├── patterns.ts       # L0 noise regex patterns
 │   └── content-types.ts  # Content type definitions
 ├── storage/
-│   ├── schema.ts         # SQLite schema + migration
+│   ├── db.ts             # BrainDB interface + shared query helpers
+│   ├── pglite-db.ts      # Embedded PostgreSQL implementation
+│   ├── pg-schema.ts      # PostgreSQL schema + bootstrap
+│   ├── graph.ts          # GraphStore for nodes, edges, traversal
 │   ├── messages.ts       # Message CRUD with L-level tags
 │   └── directives.ts     # L3 directive + L2 preference store
 ├── assembly/
@@ -84,7 +87,7 @@ Edit `src/triage/patterns.ts`. Add your regex to the appropriate array (`ACK_PAT
 
 - Unit tests go in `test/`
 - Benchmark/eval tests go in `eval/`
-- Use real SQLite databases (tmpdir), not mocks
+- Use real PGLite databases (tmpdir), not mocks
 - Clean up DB files in `afterEach`
 
 ## Pull Requests

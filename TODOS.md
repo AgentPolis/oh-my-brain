@@ -21,7 +21,6 @@
 - [x] L2 preference ingestion (classifier + engine wiring for explicit preferences)
 - [x] L3 classifier false-positive fix (removed over-loose "should" / "太多" patterns)
 - [x] TODOS.md + MVP blockers cleaned up
-- [x] Pre-existing test failures fixed (better-sqlite3 ABI rebuild)
 
 ### Phase 2: Rename + MCP (2026-04-06)
 - [x] Rename squeeze-claw → oh-my-brain (all code, all docs, all tests)
