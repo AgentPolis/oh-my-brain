@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { SqueezeContextEngine } from "../src/engine.js";
 import { Level } from "../src/types.js";
 import type { TokenBudget, Turn } from "../src/types.js";
-import { mkdtempSync, rmSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
+import { getTestDB, cleanTables, releaseTestDB } from "./helpers/db.js";
+import type { BrainDB } from "../src/storage/db.js";
 
 function budget(available: number): TokenBudget {
   return { maxTokens: available, usedTokens: 0, available };
@@ -12,17 +11,20 @@ function budget(available: number): TokenBudget {
 
 describe("SqueezeContextEngine", () => {
   let engine: SqueezeContextEngine;
-  let tmpDir: string;
+  let db: BrainDB;
 
-  beforeEach(async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-engine-test-"));
-    engine = new SqueezeContextEngine();
-    await engine.bootstrap(tmpDir);
+  beforeAll(async () => {
+    db = await getTestDB();
   });
 
-  afterEach(async () => {
-    await engine.close();
-    rmSync(tmpDir, { recursive: true, force: true });
+  beforeEach(async () => {
+    await cleanTables(db);
+    engine = new SqueezeContextEngine();
+    await engine.bootstrapWithDb(db);
+  });
+
+  afterAll(async () => {
+    await releaseTestDB();
   });
 
   it("bootstraps successfully", async () => {

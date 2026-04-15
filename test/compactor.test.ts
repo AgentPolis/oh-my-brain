@@ -1,9 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
-import { initPgSchema } from "../src/storage/pg-schema.js";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { getTestDB, cleanTables, releaseTestDB } from "./helpers/db.js";
+import type { BrainDB } from "../src/storage/db.js";
 import { DagStore } from "../src/storage/dag.js";
 import { Level } from "../src/types.js";
 import { summarize } from "../src/compact/summarizer.js";
@@ -12,17 +9,17 @@ import { MessageStore } from "../src/storage/messages.js";
 import { Compactor } from "../src/compact/compactor.js";
 
 let db: BrainDB;
-let tmpDir: string;
 
-beforeEach(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), "squeeze-compactor-test-"));
-  db = await pgliteFactory.create(tmpDir);
-  await initPgSchema(db);
+beforeAll(async () => {
+  db = await getTestDB();
 });
 
-afterEach(async () => {
-  await db.close();
-  rmSync(tmpDir, { recursive: true, force: true });
+beforeEach(async () => {
+  await cleanTables(db);
+});
+
+afterAll(async () => {
+  await releaseTestDB();
 });
 
 describe("DagStore", () => {

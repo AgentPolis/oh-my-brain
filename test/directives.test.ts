@@ -1,15 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
-import { initPgSchema } from "../src/storage/pg-schema.js";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { getTestDB, cleanTables, releaseTestDB } from "./helpers/db.js";
+import type { BrainDB } from "../src/storage/db.js";
 import { DirectiveStore } from "../src/storage/directives.js";
 
 describe("DirectiveStore", () => {
   let db: BrainDB;
   let store: DirectiveStore;
-  let tmpDir: string;
 
   /** Insert a dummy message row so foreign key constraints are satisfied. */
   async function insertMsg(): Promise<number> {
@@ -21,16 +17,17 @@ describe("DirectiveStore", () => {
     return rows[0].id;
   }
 
+  beforeAll(async () => {
+    db = await getTestDB();
+  });
+
   beforeEach(async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-directives-test-"));
-    db = await pgliteFactory.create(tmpDir);
-    await initPgSchema(db);
+    await cleanTables(db);
     store = new DirectiveStore(db);
   });
 
-  afterEach(async () => {
-    await db.close();
-    rmSync(tmpDir, { recursive: true, force: true });
+  afterAll(async () => {
+    await releaseTestDB();
   });
 
   // ── L3 Directive Tests ──────────────────────────────────────────

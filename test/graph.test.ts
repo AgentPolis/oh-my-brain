@@ -1,29 +1,29 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
-import { initPgSchema } from "../src/storage/pg-schema.js";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { getTestDB, cleanTables, releaseTestDB } from "./helpers/db.js";
+import type { BrainDB } from "../src/storage/db.js";
 import { GraphStore } from "../src/storage/graph.js";
 
 let db: BrainDB;
-let tmpDir: string;
 
-afterEach(async () => {
-  if (db) await db.close();
-  if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+beforeAll(async () => {
+  db = await getTestDB();
 });
 
-async function freshGraph(): Promise<GraphStore> {
-  tmpDir = mkdtempSync(join(tmpdir(), "graph-test-"));
-  db = await pgliteFactory.create(tmpDir);
-  await initPgSchema(db);
+beforeEach(async () => {
+  await cleanTables(db);
+});
+
+afterAll(async () => {
+  await releaseTestDB();
+});
+
+function freshGraph(): GraphStore {
   return new GraphStore(db);
 }
 
 describe("GraphStore", () => {
   it("adds and retrieves a node", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "evt-1", type: "event", label: "car service" });
     const node = await g.getNode("evt-1");
     expect(node).not.toBeNull();
@@ -32,7 +32,7 @@ describe("GraphStore", () => {
   });
 
   it("upserts nodes — second add updates label", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "per-alice", type: "person", label: "Alice" });
     await g.addNode({ id: "per-alice", type: "person", label: "Alice Chen" });
     const node = await g.getNode("per-alice");
@@ -40,7 +40,7 @@ describe("GraphStore", () => {
   });
 
   it("adds edges between nodes", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "per-tom", type: "person", label: "Tom" });
     await g.addNode({ id: "evt-1", type: "event", label: "car service" });
     await g.addEdge({ id: "e1", fromId: "per-tom", toId: "evt-1", type: "involved_in" });
@@ -51,7 +51,7 @@ describe("GraphStore", () => {
   });
 
   it("getNeighbors filters by edge type", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "per-tom", type: "person", label: "Tom" });
     await g.addNode({ id: "evt-1", type: "event", label: "car service" });
     await g.addNode({ id: "dir-1", type: "directive", label: "check reliability" });
@@ -67,7 +67,7 @@ describe("GraphStore", () => {
   });
 
   it("multi-hop traversal via findPath", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "a", type: "person", label: "Alice" });
     await g.addNode({ id: "b", type: "event", label: "meeting" });
     await g.addNode({ id: "c", type: "directive", label: "always take notes" });
@@ -80,7 +80,7 @@ describe("GraphStore", () => {
   });
 
   it("searchNodes by type", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "per-1", type: "person", label: "Alice" });
     await g.addNode({ id: "per-2", type: "person", label: "Bob" });
     await g.addNode({ id: "evt-1", type: "event", label: "lunch" });
@@ -91,7 +91,7 @@ describe("GraphStore", () => {
   });
 
   it("searchNodes by keyword (case-insensitive)", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "evt-1", type: "event", label: "Car service at Lexus dealer" });
     await g.addNode({ id: "evt-2", type: "event", label: "Lunch meeting" });
 
@@ -101,7 +101,7 @@ describe("GraphStore", () => {
   });
 
   it("searchNodes by category", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "evt-1", type: "event", label: "trip", category: "travel" });
     await g.addNode({ id: "evt-2", type: "event", label: "lunch", category: "food" });
 
@@ -111,7 +111,7 @@ describe("GraphStore", () => {
   });
 
   it("searchNodes respects limit", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     for (let i = 0; i < 10; i++) {
       await g.addNode({ id: `n-${i}`, type: "event", label: `event ${i}` });
     }
@@ -120,7 +120,7 @@ describe("GraphStore", () => {
   });
 
   it("getSummary returns correct counts", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "per-1", type: "person", label: "Alice" });
     await g.addNode({ id: "evt-1", type: "event", label: "meeting" });
     await g.addEdge({ id: "e1", fromId: "per-1", toId: "evt-1", type: "involved_in" });
@@ -134,7 +134,7 @@ describe("GraphStore", () => {
   });
 
   it("toTimelineString formats nodes with timestamps", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "evt-1", type: "event", label: "flight to Seattle", ts: "2026-04-01T10:00:00.000Z" });
     await g.addNode({ id: "evt-2", type: "event", label: "meeting with Tom", ts: "2026-04-02T14:00:00.000Z" });
 
@@ -144,7 +144,7 @@ describe("GraphStore", () => {
   });
 
   it("stores JSONB metadata on nodes", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({
       id: "evt-1",
       type: "event",
@@ -157,7 +157,7 @@ describe("GraphStore", () => {
   });
 
   it("edge confidence defaults to 0.5", async () => {
-    const g = await freshGraph();
+    const g = freshGraph();
     await g.addNode({ id: "a", type: "person", label: "A" });
     await g.addNode({ id: "b", type: "event", label: "B" });
     await g.addEdge({ id: "e1", fromId: "a", toId: "b", type: "involved_in" });

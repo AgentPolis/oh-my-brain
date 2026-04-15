@@ -53,6 +53,7 @@ export class SqueezeContextEngine implements ContextEngine {
   private memoryEnabled = true;
   private lastIngestedContent: string | undefined;
   private tokenCounter?: (text: string) => number;
+  private ownsDb = true;
 
   constructor(config: Partial<SqueezeConfig> = {}, tokenCounter?: (text: string) => number) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -69,7 +70,20 @@ export class SqueezeContextEngine implements ContextEngine {
     }
 
     await initPgSchema(this.brainDb);
+    await this._initStores();
+  }
 
+  /**
+   * Bootstrap with an existing BrainDB instance (for testing).
+   * The caller retains ownership of the DB lifecycle — close() will not close it.
+   */
+  async bootstrapWithDb(db: BrainDB): Promise<void> {
+    this.brainDb = db;
+    this.ownsDb = false;
+    await this._initStores();
+  }
+
+  private async _initStores(): Promise<void> {
     // Inject token counter if provided (e.g., OpenClaw runtime tokenizer)
     if (this.tokenCounter) {
       setTokenCounter(this.tokenCounter);
@@ -243,7 +257,9 @@ export class SqueezeContextEngine implements ContextEngine {
   }
 
   async close(): Promise<void> {
-    await this.brainDb?.close();
+    if (this.ownsDb) {
+      await this.brainDb?.close();
+    }
   }
 }
 
