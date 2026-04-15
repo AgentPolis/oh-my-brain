@@ -33,6 +33,7 @@ import { detectRelationSignals, RelationStore, updateRelation, upsertInfluenceRe
 import { detectSchemas, SchemaStore } from "./schema-detector.js";
 import { consolidateProject } from "./consolidate.js";
 import { scanSessionForFailures } from "../src/outcome/detector.js";
+import { maybeReflect } from "./llm-reflect.js";
 import { OutcomeStore } from "../src/storage/outcomes.js";
 import { buildGrowthOneLiner, detectChinese } from "../src/growth/one-liner.js";
 import type { SessionStats } from "../src/types.js";
@@ -1237,6 +1238,43 @@ export async function main() {
     process.stderr.write(
       `[brain] ${newOutcomes.length} outcome${newOutcomes.length === 1 ? "" : "s"} detected and recorded\n`
     );
+  }
+
+  // --- LLM reflection (corrections + sentiment) ---
+  try {
+    const userTexts = processed
+      .filter((m) => m.role === "user")
+      .map((m) => m.originalText);
+    const reflection = maybeReflect(userTexts);
+    if (reflection) {
+      if (reflection.corrections.length > 0) {
+        const reflectCandidateStore = loadCandidateStore(cwd);
+        ingestCandidates(reflectCandidateStore, reflection.corrections, {
+          source: "claude",
+          sessionId,
+          projectRoot: cwd,
+        });
+        saveCandidateStore(cwd, reflectCandidateStore);
+        process.stderr.write(
+          `[brain] LLM reflection: ${reflection.corrections.length} correction${reflection.corrections.length === 1 ? "" : "s"} → candidates\n`
+        );
+      }
+      if (reflection.sentiments.length > 0) {
+        mkdirSync(squeezePath, { recursive: true });
+        appendFileSync(
+          join(squeezePath, "sentiments.jsonl"),
+          reflection.sentiments
+            .map((s) => JSON.stringify({ ts: new Date().toISOString(), session_id: sessionId, text: s }))
+            .join("\n") + "\n"
+        );
+        process.stderr.write(
+          `[brain] LLM reflection: ${reflection.sentiments.length} sentiment${reflection.sentiments.length === 1 ? "" : "s"} logged\n`
+        );
+      }
+    }
+  } catch (err) {
+    // LLM reflection is best-effort, never crash the hook
+    process.stderr.write(`[brain] LLM reflection skipped: ${(err as Error).message}\n`);
   }
 
   // --- Growth one-liner ---
