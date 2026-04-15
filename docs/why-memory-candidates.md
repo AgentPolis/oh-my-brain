@@ -8,9 +8,9 @@ We were dogfooding our own tool across two windows. Claude Code in one, Codex in
 
 In the middle of working, we gave the agent corrections. Real ones, the kind any human would obviously want remembered:
 
-- "你是不是搞錯狀況了"  ("are you sure you understood the situation?")
-- "這個本來就要一直移動"  ("this is supposed to move continuously")
-- "右邊側邊欄太多提醒了"  ("there are too many reminders in the right sidebar")
+- "Are you sure you understood the situation?"
+- "This is supposed to move continuously"
+- "There are too many reminders in the right sidebar"
 
 Then we checked `MEMORY.md` to see what got captured.
 
@@ -70,11 +70,11 @@ We want every user to have that moment within their first hour of using oh-my-br
 
 Memory Candidates is **not** an attempt to be clever with NLP. The first version uses simple heuristics:
 
-- Negation markers ("不對", "wrong", "actually")
-- Implicit preference statements ("我比較喜歡", "I prefer", "should be")
+- Negation markers ("no", "wrong", "actually")
+- Implicit preference statements ("I prefer", "I like X better", "should be")
 - Friction repetition (same pattern corrected 3+ times — uses the existing `mention_counts` table)
-- Aesthetic complaints ("太多", "太少", "too cluttered")
-- Question-shaped reframes ("是不是", "wait")
+- Aesthetic complaints ("too many", "too few", "too cluttered")
+- Question-shaped reframes ("wait", "are you sure")
 
 These are dumb patterns, and that's the point. Dumb patterns + a human-in-the-loop review queue beats a smart classifier with no review every time, because the smart classifier still gets confidently wrong on edge cases and the user has no recourse.
 

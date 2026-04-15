@@ -108,8 +108,8 @@ oh-my-brain self-grows on three levels, all using the same Memory
 Candidates pattern (observe → propose → human approves → land):
 
 **Level 1 — Instance growth (already shipped).**
-The classifier observes natural-language corrections like "這個本來就要
-一直移動" and proposes them as Memory Candidates. You approve, edit, or
+The classifier observes natural-language corrections like "this is supposed
+to move continuously" and proposes them as Memory Candidates. You approve, edit, or
 reject. Approved candidates become L3 directives.
 
 **Level 2 — Type growth (new in v0.3).**

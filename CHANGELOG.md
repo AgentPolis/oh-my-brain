@@ -389,7 +389,7 @@ review by a second AI model. Every scope decision is documented in
   instead of piling up forever. Bootstrap-read consumers ignore the
   archive; re-adding a retired directive works again.
 - **L2 preference ingestion** — the classifier now detects explicit
-  preference statements ("I prefer X", "我比較喜歡 X") and the engine
+  preference statements ("I prefer X", "I like X better") and the engine
   actually calls `addPreference()`. v0.1 had the schema and read path
   but ingest never wrote to them; Codex's outside-voice review flagged
   this as "measured fiction" in the old README.
@@ -442,7 +442,7 @@ review by a second AI model. Every scope decision is documented in
   `parseExistingDirectives`.
 - **L3 classifier false positives** — removed two over-loose regex
   patterns that tagged ordinary questions ("How should I…") and soft
-  complaints ("太多提醒了") as L3 directives. The
+  complaints ("too many reminders") as L3 directives. The
   `directive-retention` eval test was failing because 20 "How should
   I" questions became 20 false-positive L3 entries. Soft signals now
   correctly flow to Memory Candidates instead.

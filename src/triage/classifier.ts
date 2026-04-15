@@ -46,7 +46,7 @@ export function classify(msg: Message, opts: ClassifierOptions, previousContent?
   }
 
   // ── L2 detection: explicit preference statements ──────────────
-  // These are unambiguous user preferences ("I prefer tabs", "我比較喜歡 X")
+  // These are unambiguous user preferences ("I prefer tabs", "I like X better")
   // that don't need repetition to be confident. Implicit preferences that
   // only emerge through repetition are handled separately by the mention-
   // counting observation loop (planned).
@@ -87,9 +87,9 @@ const DIRECTIVE_PATTERNS = [
   /\b(my role is|i am a|i'm a)\b/i,
   /\b(rule|requirement|constraint|must|shall)\s*:/i,
   // L3 Chinese patterns are restricted to the strongest imperatives only.
-  // Softer signals like "應該", "太多", "搞錯" are intentionally excluded here
+  // Softer signals like "should", "too many", "messed up" are intentionally excluded
   // because they trigger false positives on questions and observations
-  // ("這應該怎麼做?" should not be L3). Those live in Memory Candidates.
+  // (e.g. "how should I do this?" should not be L3). Those live in Memory Candidates.
   /(一律|永遠|都要|不要再|別再|從現在開始|絕對不能)/,
 ];
 

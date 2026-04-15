@@ -35,9 +35,9 @@ We discovered the real problem by dogfooding our own tool.
 
 We were testing it across two windows. We gave the agent corrections like:
 
-- "你是不是搞錯狀況了"
-- "這個本來就要一直移動"
-- "右邊側邊欄太多提醒了"
+- "Are you sure you understood the situation?"
+- "This is supposed to move continuously"
+- "There are too many reminders in the right sidebar"
 
 Any human would obviously remember these. The classifier stored **none**
 of them. It was waiting for "always" or "never" or "remember that". Real
@@ -61,7 +61,7 @@ Four importance levels, plus the thing nobody else does:
   events extracted with who/what/when/where for precise temporal
   retrieval.
 - **L2 Preference** — Explicit statements like "I prefer tabs" or
-  "我比較喜歡 TypeScript". Promoted with confidence scores.
+  "I prefer TypeScript". Promoted with confidence scores.
 - **L3 Directive** — Your "always" and "never" rules. **Never compressed.
   Never summarized. Never forgotten.**
 - **Events** — Structured episodic memory extracted from conversations.
@@ -199,8 +199,8 @@ up any new directives and new soft signals appear in the review queue:
 ```bash
 brain-candidates list
 # → 2 pending candidates:
-#   f22e9b2a [seen 3x] 這個本來就要一直移動
-#   a103e8c9 [seen 1x] 右邊側邊欄太多提醒了
+#   f22e9b2a [seen 3x] this is supposed to move continuously
+#   a103e8c9 [seen 1x] too many reminders in the right sidebar
 brain-candidates approve f22e9b2a --as "the cursor should always keep moving"
 ```
 

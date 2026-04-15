@@ -7,5 +7,10 @@ dist/
 *.tsbuildinfo
 .DS_Store
 PRD.md
+TODOS.md
+MEMORY.md
 docs/launch-post-draft.md
+docs/plans/
+docs/superpowers/
+docs/research/
 .npmrc

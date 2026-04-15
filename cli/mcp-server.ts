@@ -159,7 +159,7 @@ const TOOLS: ToolDefinition[] = [
       "For specific dates, events, people, categories, or conversation details, use brain_search instead. " +
       "AGENT BEHAVIOR: " +
       "(1) User says 'always/never/from now on/remember that' → call brain_remember directly. " +
-      "(2) User corrects you clearly ('不對','wrong','I told you X') → call brain_remember with the correction as a rule. " +
+      "(2) User corrects you clearly ('no','wrong','I told you X') → call brain_remember with the correction as a rule. " +
       "(3) User repeats same preference 2+ times → call brain_remember. " +
       "(4) Uncertain soft signals → call brain_candidates action=add. " +
       "(5) Reusable lesson after 5+ tool calls → brain_candidates action=add. " +
