@@ -36,6 +36,10 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { OutcomeStore } from "../src/storage/outcomes.js";
+import { ProcedureStore } from "../src/storage/procedures.js";
+import { extractProcedure } from "../src/procedure/extractor.js";
+import { findSessionJsonl, parseSessionEntries, extractTextContent } from "./compress-core.js";
 import {
   ingestCandidates,
   listCandidates,
@@ -472,6 +476,49 @@ const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    name: "brain_save_procedure",
+    description:
+      "Extract a reusable procedure from the current session's tool calls. " +
+      "Use when the user says 'remember this workflow' or 'save these steps'. " +
+      "Reads the current session, extracts steps in order, detects pitfalls " +
+      "from error/retry sequences, and saves as a candidate procedure.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Human-readable title for the procedure (e.g., 'Production Deploy').",
+        },
+        trigger: {
+          type: "string",
+          description: "Task description that should trigger this procedure (e.g., 'deploy to production').",
+        },
+      },
+      required: ["title", "trigger"],
+    },
+  },
+  {
+    name: "brain_procedures",
+    description:
+      "List, approve, or archive saved procedures. Procedures are multi-step " +
+      "workflows extracted from sessions. Approved procedures are injected " +
+      "into sub-agent context when the task matches the trigger.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "approve", "archive"],
+          description: "What to do. Default: list.",
+        },
+        id: {
+          type: "string",
+          description: "Procedure ID or prefix (required for approve/archive).",
+        },
+      },
+    },
+  },
 ];
 
 // ── JSON-RPC envelope types ──────────────────────────────────────
@@ -686,11 +733,34 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
     selectedBullets.map((bullet) => bullet.body)
   );
   const label = mode === "type" ? `Active directives for ${requestedType}` : "Active directives";
-  return textResult(
-    `${label} (${selectedBullets.length}):\n\n${renderedBullets.join("\n")}${
-      conflicts.length > 0 ? `\n\n${conflicts.join("\n")}` : ""
-    }`
-  );
+  let output = `${label} (${selectedBullets.length}):\n\n${renderedBullets.join("\n")}${
+    conflicts.length > 0 ? `\n\n${conflicts.join("\n")}` : ""
+  }`;
+
+  // Append cautions from outcome store
+  const root = projectRoot();
+  const outcomeStore = new OutcomeStore(join(root, ".squeeze"));
+  const cautions = outcomeStore.findRelevant(output, 3);
+  if (cautions.length > 0) {
+    const cautionLines = cautions.map(
+      (c) => `- ⚠️ ${c.lesson} (${c.timestamp.slice(0, 10)})`
+    );
+    output += `\n\n## Cautions\n${cautionLines.join("\n")}`;
+  }
+
+  // Append relevant procedures
+  const procedureStore = new ProcedureStore(join(root, ".squeeze"));
+  const matchedProcedure = procedureStore.findApprovedByTrigger(output);
+  if (matchedProcedure) {
+    const stepLines = matchedProcedure.steps.map((s) => `${s.order}. ${s.action}`);
+    const pitfallLines = matchedProcedure.pitfalls.map((p) => `⚠️ Pitfall: ${p}`);
+    const verifyLines = matchedProcedure.verification.map((v) => `✅ Verify: ${v}`);
+    output += `\n\n## Relevant Procedures\n### ${matchedProcedure.title}\n${stepLines.join("\n")}`;
+    if (pitfallLines.length > 0) output += `\n${pitfallLines.join("\n")}`;
+    if (verifyLines.length > 0) output += `\n${verifyLines.join("\n")}`;
+  }
+
+  return textResult(output);
 }
 
 async function handleBrainCandidates(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
@@ -1607,6 +1677,81 @@ async function handleBrainReflect(args: Record<string, unknown>): Promise<{ cont
   return textResult(`error: unknown reflect action "${action}"`);
 }
 
+async function handleBrainSaveProcedure(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  const trigger = typeof args.trigger === "string" ? args.trigger.trim() : "";
+  if (!title) return textResult("error: title is required");
+  if (!trigger) return textResult("error: trigger is required");
+
+  const root = projectRoot();
+  const sessionPath = findSessionJsonl(root);
+  if (!sessionPath) {
+    return textResult("error: no active session found");
+  }
+
+  const entries = parseSessionEntries(sessionPath);
+  const sessionId = sessionPath.split("/").pop()?.replace(".jsonl", "") ?? "unknown";
+
+  // Convert SessionEntry[] to SimpleMessage[] for extractProcedure
+  const messages = entries
+    .filter((e) => e.message)
+    .map((e) => {
+      const msg = e.message!;
+      const content = typeof msg.content === "string"
+        ? msg.content
+        : extractTextContent(msg.content);
+      // Map tool_result type entries to "tool" role
+      const role = e.type === "tool_result" ? "tool" as const : msg.role;
+      return { role, content };
+    });
+
+  const procedure = extractProcedure(messages, title, trigger, sessionId);
+  const store = new ProcedureStore(join(root, ".squeeze"));
+  store.append(procedure);
+
+  const stepCount = procedure.steps.length;
+  const pitfallCount = procedure.pitfalls.length;
+  return textResult(
+    `Procedure '${title}' saved as candidate (${stepCount} steps, ${pitfallCount} pitfalls). ` +
+    `Use brain_procedures action=approve id=${procedure.id} to approve.`
+  );
+}
+
+async function handleBrainProcedures(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
+  const action = typeof args.action === "string" ? args.action : "list";
+  const root = projectRoot();
+  const store = new ProcedureStore(join(root, ".squeeze"));
+
+  if (action === "list") {
+    const all = store.getAll();
+    if (all.length === 0) {
+      return textResult("no procedures saved yet");
+    }
+    const lines = all.map((p) => {
+      const stepCount = p.steps.length;
+      return `${p.id} [${p.status}] ${p.title} (${stepCount} steps, trigger: "${p.trigger}")`;
+    });
+    return textResult(`${all.length} procedure(s):\n\n${lines.join("\n")}`);
+  }
+
+  if (action === "approve" || action === "archive") {
+    const rawId = typeof args.id === "string" ? args.id.trim() : "";
+    if (!rawId) return textResult(`error: id is required for action=${action}`);
+
+    const all = store.getAll();
+    const match = all.find((p) => p.id === rawId || p.id.startsWith(rawId));
+    if (!match) return textResult(`error: no procedure matches "${rawId}"`);
+
+    const newStatus = action === "approve" ? "approved" : "archived";
+    const updated = store.updateStatus(match.id, newStatus);
+    if (!updated) return textResult(`error: failed to update procedure ${rawId}`);
+
+    return textResult(`procedure '${match.title}' → ${newStatus}`);
+  }
+
+  return textResult(`error: unknown procedures action "${action}"`);
+}
+
 async function callTool(name: string, args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   switch (name) {
     case "brain_remember":
@@ -1639,6 +1784,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<{ 
       return handleBrainTypes(args);
     case "brain_links":
       return handleBrainLinks(args);
+    case "brain_save_procedure":
+      return handleBrainSaveProcedure(args);
+    case "brain_procedures":
+      return handleBrainProcedures(args);
     default:
       return textResult(`error: unknown tool "${name}"`);
   }
