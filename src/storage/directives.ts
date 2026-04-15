@@ -65,7 +65,7 @@ export class DirectiveStore {
 
   async getDirectiveHistory(key: string): Promise<DirectiveRecord[]> {
     const rows = await this.db.query<RawDirectiveRow>(
-      `SELECT * FROM directives WHERE key = $1 ORDER BY created_at`,
+      `SELECT * FROM directives WHERE key = $1 ORDER BY created_at, id`,
       [key],
     );
     return rows.map(toDirectiveRecord);

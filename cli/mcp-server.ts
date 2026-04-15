@@ -103,7 +103,7 @@ import { RelationStore } from "./relation-store.js";
 import { SchemaStore } from "./schema-detector.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.6.1";
+const SERVER_VERSION = "0.7.0";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────

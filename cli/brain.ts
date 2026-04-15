@@ -21,7 +21,7 @@
 import { runCandidatesCli } from "./candidates-cli.js";
 import { runImportCli } from "./import.js";
 
-const VERSION = "0.6.1";
+const VERSION = "0.7.0";
 
 const HELP_TEXT = `oh-my-brain ${VERSION} — the second brain for AI agents
 
