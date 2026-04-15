@@ -31,6 +31,7 @@ import { extractEvents } from "./event-extractor.js";
 import { detectHabits, loadHabits, saveHabits } from "./habit-detector.js";
 import { detectRelationSignals, RelationStore, updateRelation, upsertInfluenceRelation } from "./relation-store.js";
 import { detectSchemas, SchemaStore } from "./schema-detector.js";
+import { consolidateProject } from "./consolidate.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -716,11 +717,11 @@ function performDirectiveWrite(
   return newDirectives.length;
 }
 
-export function writeDirectivesToMemory(
+export async function writeDirectivesToMemory(
   processed: ProcessedMessage[],
   memoryPath: string,
   metadata?: WriteMetadata
-): number {
+): Promise<number> {
   const directives = processed
     .filter((m) => m.level === Level.Directive)
     .map((m) => ({
@@ -748,7 +749,7 @@ export function writeDirectivesToMemory(
 
   if (written > 0) {
     const activeDirectives = parseExistingDirectives(readFileSync(memoryPath, "utf8"));
-    persistDirectives(dirname(memoryPath), newDirectiveRecords.filter((record) =>
+    await persistDirectives(dirname(memoryPath), newDirectiveRecords.filter((record) =>
       activeDirectives.has(record.directiveText)
     ));
   }
@@ -1069,7 +1070,7 @@ export async function main() {
 
   const memoryPath = join(cwd, "MEMORY.md");
   const sessionId = sessionPath.split("/").pop()?.replace(".jsonl", "") ?? sessionPath;
-  const directivesWritten = writeDirectivesToMemory(processed, memoryPath, {
+  const directivesWritten = await writeDirectivesToMemory(processed, memoryPath, {
     source: "claude",
     sessionId,
   });
@@ -1210,5 +1211,21 @@ export async function main() {
     process.stderr.write(
       `[brain] ontology scan skipped: ${(err as Error).message}\n`
     );
+  }
+
+  if (process.env.OH_MY_BRAIN_SKIP_AUTO_CONSOLIDATE !== "1") {
+    try {
+      const report = await consolidateProject(cwd, { staleDays: 30 });
+      process.stderr.write(
+        `[brain] offline growth: ${report.reflection.proposalsCreated} proposal${report.reflection.proposalsCreated === 1 ? "" : "s"}, `
+        + `${report.consolidation.newHabits} habit${report.consolidation.newHabits === 1 ? "" : "s"}, `
+        + `${report.consolidation.newSchemas} schema${report.consolidation.newSchemas === 1 ? "" : "s"}, `
+        + `journal updated\n`
+      );
+    } catch (err) {
+      process.stderr.write(
+        `[brain] offline growth skipped: ${(err as Error).message}\n`
+      );
+    }
   }
 }

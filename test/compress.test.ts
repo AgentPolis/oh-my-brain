@@ -780,9 +780,9 @@ describe("writeDirectivesToMemory", () => {
     return { index: 0, role, originalText: text, compressedText: text, level, wasCompressed: false };
   }
 
-  it("creates MEMORY.md with L3 directives", () => {
+  it("creates MEMORY.md with L3 directives", async () => {
     const processed = [makeProcessed(Level.Directive, "always use TDD")];
-    const count = writeDirectivesToMemory(processed, memoryPath, {
+    const count = await writeDirectivesToMemory(processed, memoryPath, {
       source: "claude",
       sessionId: "demo-session",
     });
@@ -792,26 +792,26 @@ describe("writeDirectivesToMemory", () => {
     expect(readFileSync(memoryPath, "utf8")).toContain("[source:claude session:demo-session]");
   });
 
-  it("returns 0 and does not create file when no directives", () => {
+  it("returns 0 and does not create file when no directives", async () => {
     const processed = [makeProcessed(Level.Observation, "some observation")];
-    const count = writeDirectivesToMemory(processed, memoryPath);
+    const count = await writeDirectivesToMemory(processed, memoryPath);
     expect(count).toBe(0);
     expect(existsSync(memoryPath)).toBe(false);
   });
 
-  it("deduplicates — does not append the same directive twice", () => {
+  it("deduplicates — does not append the same directive twice", async () => {
     const processed = [makeProcessed(Level.Directive, "always use TDD")];
-    writeDirectivesToMemory(processed, memoryPath);
-    const count2 = writeDirectivesToMemory(processed, memoryPath);
+    await writeDirectivesToMemory(processed, memoryPath);
+    const count2 = await writeDirectivesToMemory(processed, memoryPath);
     expect(count2).toBe(0); // already present
     const content = readFileSync(memoryPath, "utf8");
     expect(content.split("always use TDD").length - 1).toBe(1); // appears exactly once
   });
 
-  it("appends new directives to existing MEMORY.md", () => {
+  it("appends new directives to existing MEMORY.md", async () => {
     writeFileSync(memoryPath, "# existing content\n");
     const processed = [makeProcessed(Level.Directive, "never push to main")];
-    const count = writeDirectivesToMemory(processed, memoryPath);
+    const count = await writeDirectivesToMemory(processed, memoryPath);
     expect(count).toBe(1);
     const content = readFileSync(memoryPath, "utf8");
     expect(content).toContain("# existing content");
@@ -824,7 +824,7 @@ describe("writeDirectivesToMemory", () => {
       makeProcessed(Level.Directive, "always use TypeScript strict mode"),
       makeProcessed(Level.Directive, "never commit generated files"),
     ];
-    writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+    await writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
 
     const retired = retireDirective(memoryPath, "always use TypeScript");
     expect(retired).toBe(1);
@@ -846,13 +846,13 @@ describe("writeDirectivesToMemory", () => {
   it("retireDirective allows re-adding a retired directive later", async () => {
     const { retireDirective } = await import("../cli/compress-core.js");
     const processed = [makeProcessed(Level.Directive, "always use Python 3.11")];
-    writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+    await writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
 
     retireDirective(memoryPath, "always use Python 3.11");
 
     // Re-add the same directive — should succeed because parseExistingDirectives
     // skips archive content.
-    const count = writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+    const count = await writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
     expect(count).toBe(1);
 
     const content = readFileSync(memoryPath, "utf8");
@@ -864,7 +864,7 @@ describe("writeDirectivesToMemory", () => {
   it("retireDirective returns 0 when no directive matches", async () => {
     const { retireDirective } = await import("../cli/compress-core.js");
     const processed = [makeProcessed(Level.Directive, "always use TDD")];
-    writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
+    await writeDirectivesToMemory(processed, memoryPath, { source: "claude" });
 
     const retired = retireDirective(memoryPath, "never pair program");
     expect(retired).toBe(0);
@@ -876,7 +876,7 @@ describe("writeDirectivesToMemory", () => {
     expect(retired).toBe(0);
   });
 
-  it("does not let a shorter directive block a longer superset directive (substring bug regression)", () => {
+  it("does not let a shorter directive block a longer superset directive (substring bug regression)", async () => {
     // Regression: previously used `existing.includes(d)` which would treat
     // "always use TypeScript" as already-present once "always use TypeScript strict mode"
     // had been written, causing the shorter directive to be silently dropped.
@@ -884,10 +884,10 @@ describe("writeDirectivesToMemory", () => {
     // writing "always use TypeScript" first would then silently drop
     // "always use TypeScript strict mode" because the prefix matched.
     const first = [makeProcessed(Level.Directive, "always use TypeScript")];
-    writeDirectivesToMemory(first, memoryPath);
+    await writeDirectivesToMemory(first, memoryPath);
 
     const second = [makeProcessed(Level.Directive, "always use TypeScript strict mode")];
-    const count = writeDirectivesToMemory(second, memoryPath);
+    const count = await writeDirectivesToMemory(second, memoryPath);
 
     expect(count).toBe(1);
     const content = readFileSync(memoryPath, "utf8");
@@ -895,14 +895,14 @@ describe("writeDirectivesToMemory", () => {
     expect(content).toContain("always use TypeScript");
   });
 
-  it("does not let a longer directive's substring of a shorter one cause duplication", () => {
+  it("does not let a longer directive's substring of a shorter one cause duplication", async () => {
     // Inverse of the above: write the long one first, then the short one.
     // The short one is genuinely new and should be appended exactly once.
     const first = [makeProcessed(Level.Directive, "always use TypeScript strict mode")];
-    writeDirectivesToMemory(first, memoryPath);
+    await writeDirectivesToMemory(first, memoryPath);
 
     const second = [makeProcessed(Level.Directive, "always use TypeScript")];
-    const count = writeDirectivesToMemory(second, memoryPath);
+    const count = await writeDirectivesToMemory(second, memoryPath);
 
     expect(count).toBe(1);
     const content = readFileSync(memoryPath, "utf8");
@@ -912,12 +912,12 @@ describe("writeDirectivesToMemory", () => {
     expect(occurrences.length).toBe(1);
   });
 
-  it("ignores L1 and L0 messages", () => {
+  it("ignores L1 and L0 messages", async () => {
     const processed = [
       makeProcessed(Level.Observation, "just an observation"),
       makeProcessed(Level.Discard, "noise"),
     ];
-    const count = writeDirectivesToMemory(processed, memoryPath);
+    const count = await writeDirectivesToMemory(processed, memoryPath);
     expect(count).toBe(0);
   });
 });

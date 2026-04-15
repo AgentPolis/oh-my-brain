@@ -142,13 +142,13 @@ export function scanImportFile(projectRoot: string, filePath: string): ImportSca
   return { directives, candidates, skipped };
 }
 
-export function importRulesFromFile(projectRoot: string, filePath: string): ImportResult {
+export async function importRulesFromFile(projectRoot: string, filePath: string): Promise<ImportResult> {
   const plan = scanImportFile(projectRoot, filePath);
   const candidateStore = loadCandidateStore(projectRoot);
   let imported = 0;
 
   for (const directive of plan.directives) {
-    const action = applyRememberDirective(
+    const action = await applyRememberDirective(
       { projectRoot, source: "unknown", sessionId: `import:${filePath}` },
       { text: directive }
     );
@@ -166,7 +166,7 @@ export function importRulesFromFile(projectRoot: string, filePath: string): Impo
   return { imported, candidates: createdCandidates.length, skipped: plan.skipped };
 }
 
-export function runImportCli(argv: string[], projectRoot: string): number {
+export async function runImportCli(argv: string[], projectRoot: string): Promise<number> {
   const args = argv.slice(2);
   const fromIndex = args.indexOf("--from");
   const explicitPath = fromIndex >= 0 ? args[fromIndex + 1] : undefined;
@@ -184,7 +184,7 @@ export function runImportCli(argv: string[], projectRoot: string): number {
   let skipped = 0;
 
   for (const target of targets) {
-    const result = importRulesFromFile(projectRoot, target);
+    const result = await importRulesFromFile(projectRoot, target);
     imported += result.imported;
     candidates += result.candidates;
     skipped += result.skipped;

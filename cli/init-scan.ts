@@ -148,7 +148,7 @@ export async function runInitCli(argv: string[], projectRoot: string): Promise<n
 
   let written = 0;
   for (const directive of directivesToWrite) {
-    const action = applyRememberDirective(
+    const action = await applyRememberDirective(
       { projectRoot, source: "unknown", sessionId: "init" },
       { text: directive }
     );

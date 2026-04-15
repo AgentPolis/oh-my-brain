@@ -41,7 +41,7 @@ describe("syncCodexSessions", () => {
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("writes MEMORY.md for stable Codex sessions and records state", () => {
+  it("writes MEMORY.md for stable Codex sessions and records state", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "squeeze-codex-"));
     const projectDir = join(tempDir, "project");
     const sessionsRoot = join(tempDir, "sessions");
@@ -78,7 +78,7 @@ describe("syncCodexSessions", () => {
     const oldTime = new Date(Date.now() - 120000);
     utimesSync(sessionFile, oldTime, oldTime);
 
-    const result = syncCodexSessions({
+    const result = await syncCodexSessions({
       sessionsRoot,
       statePath,
       logPath,

@@ -138,11 +138,11 @@ function cmdList(projectRoot: string, showAll: boolean): number {
   return 0;
 }
 
-function cmdApprove(
+async function cmdApprove(
   projectRoot: string,
   idPrefix: string,
   editedText: string | undefined
-): number {
+): Promise<number> {
   const store = loadCandidateStore(projectRoot);
   const fullId = resolveCandidateId(store, idPrefix);
   if (!fullId) {
@@ -152,7 +152,7 @@ function cmdApprove(
     return 1;
   }
 
-  const action = applyPromoteCandidate(
+  const action = await applyPromoteCandidate(
     { projectRoot, source: "cli" },
     { candidateId: fullId, finalText: editedText }
   );
@@ -552,7 +552,7 @@ function parseEditFlag(args: string[]): string | undefined {
   return args[asIdx + 1];
 }
 
-export function runCandidatesCli(argv: string[], projectRoot: string): number {
+export async function runCandidatesCli(argv: string[], projectRoot: string): Promise<number> {
   const args = argv.slice(2);
 
   if (args.includes("--help") || args.includes("-h")) {
@@ -576,7 +576,7 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
       process.stderr.write("Usage: brain-candidates approve <id> [--as \"text\"]\n");
       return 1;
     }
-    return cmdApprove(projectRoot, id, parseEditFlag(args));
+    return await cmdApprove(projectRoot, id, parseEditFlag(args));
   }
 
   if (cmd === "reject") {
@@ -681,6 +681,10 @@ export function runCandidatesCli(argv: string[], projectRoot: string): number {
 
 // Only execute when run as a script (not when imported for testing).
 if (isDirectEntry(["candidates-cli.js", "brain-candidates"])) {
-  const exitCode = runCandidatesCli(process.argv, process.cwd());
-  process.exit(exitCode);
+  runCandidatesCli(process.argv, process.cwd())
+    .then((exitCode) => process.exit(exitCode))
+    .catch((err: Error) => {
+      process.stderr.write(`[brain-candidates] error: ${err.message}\n`);
+      process.exit(1);
+    });
 }

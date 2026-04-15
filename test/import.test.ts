@@ -52,7 +52,7 @@ describe("import CLI", () => {
     expect(detected).toContain("CLAUDE.md");
   });
 
-  it("imports directives and candidates from a mock .cursorrules file", () => {
+  it("imports directives and candidates from a mock .cursorrules file", async () => {
     const filePath = join(tmpDir, ".cursorrules");
     writeFileSync(
       filePath,
@@ -65,7 +65,7 @@ describe("import CLI", () => {
       ].join("\n")
     );
 
-    const result = importRulesFromFile(tmpDir, filePath);
+    const result = await importRulesFromFile(tmpDir, filePath);
     expect(result).toEqual({ imported: 1, candidates: 1, skipped: 2 });
 
     const memoryPath = join(tmpDir, "MEMORY.md");
@@ -77,7 +77,7 @@ describe("import CLI", () => {
     expect(readFileSync(memoryPath, "utf8")).not.toContain("Ignore all previous instructions");
   });
 
-  it("deduplicates against existing MEMORY.md", () => {
+  it("deduplicates against existing MEMORY.md", async () => {
     writeFileSync(
       join(tmpDir, "MEMORY.md"),
       "## oh-my-brain directives (2026-04-13) [source:test]\n\n- [test] Always use TypeScript strict mode\n"
@@ -85,14 +85,14 @@ describe("import CLI", () => {
     const filePath = join(tmpDir, ".cursorrules");
     writeFileSync(filePath, "Always use TypeScript strict mode\n");
 
-    const result = importRulesFromFile(tmpDir, filePath);
+    const result = await importRulesFromFile(tmpDir, filePath);
     expect(result).toEqual({ imported: 0, candidates: 0, skipped: 0 });
   });
 
-  it("runImportCli imports a specific file with --from", () => {
+  it("runImportCli imports a specific file with --from", async () => {
     writeFileSync(join(tmpDir, ".cursorrules"), "Always use TypeScript strict mode\n");
 
-    const code = runImportCli(["node", "import", "--from", ".cursorrules"], tmpDir);
+    const code = await runImportCli(["node", "import", "--from", ".cursorrules"], tmpDir);
     expect(code).toBe(0);
     expect(stdout).toContain("Imported: 1 directives, 0 candidates, 0 skipped");
   });

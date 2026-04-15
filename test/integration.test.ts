@@ -33,8 +33,8 @@ function cleanup(path: string) {
 describe("Integration: OpenClaw plugin lifecycle", () => {
   let engine: SqueezeContextEngine;
 
-  afterEach(() => {
-    engine?.close();
+  afterEach(async () => {
+    await engine?.close();
     cleanup(DB_PATH);
   });
 
@@ -166,12 +166,12 @@ describe("Integration: OpenClaw plugin lifecycle", () => {
 
     // Normal operation
     await engine.ingest({ role: "user", content: "Hello world" });
-    let status = engine.getStatus() as any;
+    let status = await engine.getStatus() as any;
     expect(status.degraded).toBe(false);
 
     // After successful ingestion, engine should remain non-degraded
     await engine.ingest({ role: "user", content: "Another message" });
-    status = engine.getStatus() as any;
+    status = await engine.getStatus() as any;
     expect(status.degraded).toBe(false);
   });
 });

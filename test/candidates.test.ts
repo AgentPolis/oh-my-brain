@@ -227,26 +227,26 @@ describe("runCandidatesCli", () => {
     saveCandidateStore(tmpDir, store);
   }
 
-  it("list shows 'nothing to review' when empty", () => {
-    const code = runCandidatesCli(["node", "cli"], tmpDir);
+  it("list shows 'nothing to review' when empty", async () => {
+    const code = await runCandidatesCli(["node", "cli"], tmpDir);
     expect(code).toBe(0);
     expect(stdout).toContain("No pending memory candidates");
   });
 
-  it("list shows pending candidates", () => {
+  it("list shows pending candidates", async () => {
     seed(["這個本來就要一直移動", "太多提醒了"]);
-    const code = runCandidatesCli(["node", "cli", "list"], tmpDir);
+    const code = await runCandidatesCli(["node", "cli", "list"], tmpDir);
     expect(code).toBe(0);
     expect(stdout).toContain("pending candidate");
     expect(stdout).toContain("這個本來就要一直移動");
   });
 
-  it("approve writes the candidate to MEMORY.md and marks it approved", () => {
+  it("approve writes the candidate to MEMORY.md and marks it approved", async () => {
     seed(["always lowercase file names"]);
     const store = loadCandidateStore(tmpDir);
     const [record] = Object.values(store.candidates);
 
-    const code = runCandidatesCli(
+    const code = await runCandidatesCli(
       ["node", "cli", "approve", record.id.slice(0, 6)],
       tmpDir
     );
@@ -260,12 +260,12 @@ describe("runCandidatesCli", () => {
     expect(after.candidates[record.id].status).toBe("approved");
   });
 
-  it("approve --as writes the edited text instead", () => {
+  it("approve --as writes the edited text instead", async () => {
     seed(["不要在 main branch push"]);
     const store = loadCandidateStore(tmpDir);
     const [record] = Object.values(store.candidates);
 
-    const code = runCandidatesCli(
+    const code = await runCandidatesCli(
       [
         "node",
         "cli",
@@ -283,12 +283,12 @@ describe("runCandidatesCli", () => {
     expect(memoryContent).not.toContain("不要在 main branch push");
   });
 
-  it("reject marks the candidate and does not write to MEMORY.md", () => {
+  it("reject marks the candidate and does not write to MEMORY.md", async () => {
     seed(["太多提醒了"]);
     const store = loadCandidateStore(tmpDir);
     const [record] = Object.values(store.candidates);
 
-    const code = runCandidatesCli(
+    const code = await runCandidatesCli(
       ["node", "cli", "reject", record.id.slice(0, 6)],
       tmpDir
     );
@@ -301,8 +301,8 @@ describe("runCandidatesCli", () => {
     expect(after.candidates[record.id].status).toBe("rejected");
   });
 
-  it("approve with unknown id returns error", () => {
-    const code = runCandidatesCli(
+  it("approve with unknown id returns error", async () => {
+    const code = await runCandidatesCli(
       ["node", "cli", "approve", "nosuchid"],
       tmpDir
     );
@@ -310,19 +310,19 @@ describe("runCandidatesCli", () => {
     expect(stderr).toContain("No pending candidate matches");
   });
 
-  it("retire moves a matching directive to the archive section", () => {
+  it("retire moves a matching directive to the archive section", async () => {
     // Seed MEMORY.md via the approval path first, then retire the entry.
     seed(["always use TypeScript strict mode"]);
     const store = loadCandidateStore(tmpDir);
     const [record] = Object.values(store.candidates);
-    runCandidatesCli(
+    await runCandidatesCli(
       ["node", "cli", "approve", record.id.slice(0, 6)],
       tmpDir
     );
 
     // Reset captured stdout for the retire command.
     stdout = "";
-    const code = runCandidatesCli(
+    const code = await runCandidatesCli(
       ["node", "cli", "retire", "always use TypeScript"],
       tmpDir
     );
@@ -337,8 +337,8 @@ describe("runCandidatesCli", () => {
     );
   });
 
-  it("retire with no match returns error", () => {
-    const code = runCandidatesCli(
+  it("retire with no match returns error", async () => {
+    const code = await runCandidatesCli(
       ["node", "cli", "retire", "nonexistent directive"],
       tmpDir
     );
@@ -346,13 +346,13 @@ describe("runCandidatesCli", () => {
     expect(stderr).toContain("No active directive matched");
   });
 
-  it("retire without text argument returns usage error", () => {
-    const code = runCandidatesCli(["node", "cli", "retire"], tmpDir);
+  it("retire without text argument returns usage error", async () => {
+    const code = await runCandidatesCli(["node", "cli", "retire"], tmpDir);
     expect(code).toBe(1);
     expect(stderr).toContain("Usage: brain-candidates retire");
   });
 
-  it("status prints counts", () => {
+  it("status prints counts", async () => {
     seed(["a", "b", "c"]);
     const store = loadCandidateStore(tmpDir);
     const records = Object.values(store.candidates);
@@ -360,23 +360,23 @@ describe("runCandidatesCli", () => {
     rejectCandidate(store, records[1].id);
     saveCandidateStore(tmpDir, store);
 
-    const code = runCandidatesCli(["node", "cli", "status"], tmpDir);
+    const code = await runCandidatesCli(["node", "cli", "status"], tmpDir);
     expect(code).toBe(0);
     expect(stdout).toContain("pending:");
     expect(stdout).toContain("approved: 1");
     expect(stdout).toContain("rejected: 1");
   });
 
-  it("--help returns help text", () => {
-    const code = runCandidatesCli(["node", "cli", "--help"], tmpDir);
+  it("--help returns help text", async () => {
+    const code = await runCandidatesCli(["node", "cli", "--help"], tmpDir);
     expect(code).toBe(0);
     expect(stdout).toContain("brain-candidates");
     expect(stdout).toContain("approve");
     expect(stdout).toContain("reject");
   });
 
-  it("unknown command returns error + help", () => {
-    const code = runCandidatesCli(["node", "cli", "nonsense"], tmpDir);
+  it("unknown command returns error + help", async () => {
+    const code = await runCandidatesCli(["node", "cli", "nonsense"], tmpDir);
     expect(code).toBe(1);
     expect(stderr).toContain("Unknown command");
   });

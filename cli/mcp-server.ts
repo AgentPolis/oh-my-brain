@@ -81,9 +81,23 @@ import {
 import { loadDecisionScenarios } from "./eval.js";
 import { buildDiffReport } from "./diff.js";
 import { formatQuizHistorySummary, summarizeQuizHistory } from "./quiz.js";
+import {
+  approveReflectionProposal,
+  buildGrowthSnapshot,
+  consolidateProject,
+  dismissReflectionProposal,
+  listReflectionProposals,
+  renderReflectionProposals,
+  renderGrowthSnapshot,
+  renderConsolidationReport,
+  resolveReflectionProposalId,
+} from "./consolidate.js";
 import { ArchiveStore } from "../src/storage/archive.js";
 import { EventStore, detectEventCategory, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
+import { GraphStore } from "../src/storage/graph.js";
+import { pgliteFactory } from "../src/storage/db.js";
+import { initPgSchema } from "../src/storage/pg-schema.js";
 import { loadHabits } from "./habit-detector.js";
 import { RelationStore } from "./relation-store.js";
 import { SchemaStore } from "./schema-detector.js";
@@ -202,6 +216,10 @@ const TOOLS: ToolDefinition[] = [
           type: "string",
           description: "Get a decision framework by category. Example: 'code-review'.",
         },
+        connected: {
+          type: "string",
+          description: "Find everything connected to this entity (person, event, topic). Uses knowledge graph traversal.",
+        },
         limit: {
           type: "number",
           description: "Max results to return. Default: 10.",
@@ -306,6 +324,53 @@ const TOOLS: ToolDefinition[] = [
           type: "string",
           description:
             "Time period. Default: '7 days'. Examples: '3 days', '2026-04-01', 'last month'.",
+        },
+      },
+    },
+  },
+  {
+    name: "brain_consolidate",
+    description:
+      "Run the offline growth loop immediately: external rule scan, reflection proposals, habit/schema consolidation, and growth journal update. Use this after major work or when you want the brain to reflect now instead of waiting for the next hook.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stale_days: {
+          type: "number",
+          description: "How many days of inactivity before a directive is considered stale. Default: 30.",
+        },
+      },
+    },
+  },
+  {
+    name: "brain_growth",
+    description:
+      "Read the current offline-growth state: pending reflection proposals, growth-journal count, and the latest growth summary.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "brain_reflect",
+    description:
+      "Review pending reflection proposals produced by the offline growth loop. Use action=list to inspect proposals, action=approve to apply a proposal's recommended mutation, and action=dismiss to close it without acting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "approve", "dismiss"],
+          description: "What to do. Default: list.",
+        },
+        id: {
+          type: "string",
+          description: "Proposal id or stable prefix. Required for approve/dismiss.",
+        },
+        status: {
+          type: "string",
+          enum: ["pending", "resolved", "dismissed", "all"],
+          description: "Filter when action=list. Default: pending.",
         },
       },
     },
@@ -472,7 +537,7 @@ function parseActiveDirectiveBullets(content: string): Array<{ line: string; bod
 // Agent instruction moved to brain_recall tool description to save ~300 tokens
 // per brain_recall response. MCP clients read tool descriptions at session start.
 
-function handleBrainRemember(args: Record<string, unknown>): { content: ToolContent[] } {
+async function handleBrainRemember(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const text = typeof args.text === "string" ? args.text.trim() : "";
   if (!text) {
     return textResult("error: text is required and must be non-empty");
@@ -480,7 +545,7 @@ function handleBrainRemember(args: Record<string, unknown>): { content: ToolCont
   const source = typeof args.source === "string" ? args.source : "mcp";
   const sessionId = typeof args.session_id === "string" ? args.session_id : undefined;
 
-  const action = applyRememberDirective(
+  const action = await applyRememberDirective(
     { projectRoot: projectRoot(), source, sessionId },
     { text }
   );
@@ -495,7 +560,7 @@ function handleBrainRemember(args: Record<string, unknown>): { content: ToolCont
   );
 }
 
-function handleBrainRecall(args: Record<string, unknown>): { content: ToolContent[] } {
+async function handleBrainRecall(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const mode = typeof args.mode === "string" ? args.mode : "summary";
   const requestedType = typeof args.type === "string" ? args.type : "";
   const withEvidence = args.with_evidence === true;
@@ -591,8 +656,8 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
     return textResult(`no active directives found for type "${requestedType}"`);
   }
 
-  const evidenceByDirective = withEvidence ? loadDirectiveEvidence(projectRoot()) : new Map();
-  const directiveMetadata = withEvidence ? loadDirectiveMetadata(projectRoot()) : [];
+  const evidenceByDirective = withEvidence ? await loadDirectiveEvidence(projectRoot()) : new Map();
+  const directiveMetadata = withEvidence ? await loadDirectiveMetadata(projectRoot()) : [];
   const renderedBullets = selectedBullets.map((bullet) => {
     if (!withEvidence) return bullet.line;
     const evidence = evidenceByDirective.get(bullet.body);
@@ -616,7 +681,7 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
       (link) =>
         `⚠ CONFLICT: "${link.fromDirective}" may contradict "${link.toDirective}" (detected by brain_links)`
     );
-  markDirectivesReferenced(
+  await markDirectivesReferenced(
     projectRoot(),
     selectedBullets.map((bullet) => bullet.body)
   );
@@ -628,7 +693,7 @@ function handleBrainRecall(args: Record<string, unknown>): { content: ToolConten
   );
 }
 
-function handleBrainCandidates(args: Record<string, unknown>): { content: ToolContent[] } {
+async function handleBrainCandidates(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const action = typeof args.action === "string" ? args.action : "list";
   const root = projectRoot();
   const store = loadCandidateStore(root);
@@ -672,7 +737,7 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
     if (!idPrefix) return textResult("error: id is required for action=approve");
     const fullId = resolveCandidateId(store, idPrefix);
     if (!fullId) return textResult(`error: no pending candidate matches "${idPrefix}"`);
-    const promoted = applyPromoteCandidate(
+    const promoted = await applyPromoteCandidate(
       { projectRoot: root, source: "mcp" },
       { candidateId: fullId, finalText }
     );
@@ -702,7 +767,7 @@ function handleBrainCandidates(args: Record<string, unknown>): { content: ToolCo
   return textResult(`error: unknown action "${action}" (expected list|add|approve|reject)`);
 }
 
-function handleBrainSearch(args: Record<string, unknown>): { content: ToolContent[] } {
+async function handleBrainSearch(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const root = projectRoot();
   const archive = new ArchiveStore(join(root, ".squeeze"));
   const events = new EventStore(join(root, ".squeeze"));
@@ -720,6 +785,43 @@ function handleBrainSearch(args: Record<string, unknown>): { content: ToolConten
   const category = typeof args.category === "string" ? args.category.trim() : "";
   const relation = typeof args.relation === "string" ? args.relation.trim() : "";
   const schemaCategory = typeof args.schema === "string" ? args.schema.trim() : "";
+  const connected = typeof args.connected === "string" ? args.connected.trim() : "";
+
+  if (connected) {
+    try {
+      const pgDir = join(root, ".squeeze", "brain.pg");
+      const db = await pgliteFactory.create(pgDir);
+      try {
+        await initPgSchema(db);
+        const graph = new GraphStore(db);
+        // Search for matching nodes
+        const matches = await graph.searchNodes({ keyword: connected, limit: 5 });
+        if (matches.length === 0) {
+          return textResult(`No graph nodes found matching "${connected}".`);
+        }
+        const lines: string[] = [`Connected to "${connected}":\n`];
+        for (const match of matches) {
+          lines.push(`[${match.type}] ${match.label}${match.ts ? ` (${match.ts})` : ""}`);
+          const neighbors = await graph.getNeighbors(match.id);
+          for (const neighbor of neighbors.slice(0, 10)) {
+            // Find the edge type
+            const edges = await db.query<{ type: string }>(
+              `SELECT type FROM graph_edges
+               WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1)`,
+              [match.id, neighbor.id],
+            );
+            const edgeType = edges[0]?.type ?? "related";
+            lines.push(`  → ${edgeType} → [${neighbor.type}] ${neighbor.label}`);
+          }
+        }
+        return textResult(lines.join("\n"));
+      } finally {
+        await db.close();
+      }
+    } catch {
+      return textResult(`Knowledge graph not available. Run brain_consolidate first.`);
+    }
+  }
 
   if (relation) {
     return textResult(formatRelationSearchResults(relations, relation, limit));
@@ -974,7 +1076,7 @@ function handleBrainWhy(args: Record<string, unknown>): { content: ToolContent[]
   return textResult(lines.join("\n"));
 }
 
-function handleBrainStatus(): { content: ToolContent[] } {
+async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
   const root = projectRoot();
   const store = loadCandidateStore(root);
   const pending = pendingCount(store);
@@ -1032,7 +1134,8 @@ function handleBrainStatus(): { content: ToolContent[] } {
   const schemas = new SchemaStore(join(root, ".squeeze"));
   const schemaSummary = schemas.getSummary();
   const viewpointsCaptured = events.searchByCategory("viewpoint").length;
-  const directiveMetadata = loadDirectiveMetadata(root).filter((directive) =>
+  const growth = buildGrowthSnapshot(root);
+  const directiveMetadata = (await loadDirectiveMetadata(root)).filter((directive) =>
     activeBullets.some((bullet) => bullet.body === directive.value)
   );
   const staleDirective =
@@ -1080,6 +1183,9 @@ function handleBrainStatus(): { content: ToolContent[] } {
     `relations_total: ${relationSummary.total}`,
     `relations_high_trust: ${relationSummary.high_trust}`,
     `schemas_total: ${schemaSummary.total}`,
+    `reflection_proposals_pending: ${growth.pendingProposals}`,
+    `growth_journal_entries: ${growth.journalEntries}`,
+    `latest_growth_at: ${growth.latestJournal?.ts ?? "null"}`,
     `token_budget.total_directives: ${activeDirectiveCount}`,
     `token_budget.estimated_tokens: ${estimatedTokens}`,
     `token_budget.startup_cost_tokens: 100`,
@@ -1087,6 +1193,24 @@ function handleBrainStatus(): { content: ToolContent[] } {
     `token_budget.stalest_directive: ${staleDirective?.value ?? "null"}`,
     `token_budget.stalest_age_days: ${staleAgeDays}`,
   ];
+
+  // Graph summary
+  try {
+    const pgDir = join(root, ".squeeze", "brain.pg");
+    const graphDb = await pgliteFactory.create(pgDir);
+    try {
+      await initPgSchema(graphDb);
+      const graph = new GraphStore(graphDb);
+      const graphSummary = await graph.getSummary();
+      parts.push(`graph_nodes: ${graphSummary.totalNodes}`);
+      parts.push(`graph_edges: ${graphSummary.totalEdges}`);
+    } finally {
+      await graphDb.close();
+    }
+  } catch {
+    parts.push(`graph_nodes: 0`);
+    parts.push(`graph_edges: 0`);
+  }
   if (actionLog.length > 0) {
     const breakdown = Array.from(actionsByKind.entries())
       .map(([k, c]) => `${k}=${c}`)
@@ -1428,7 +1552,62 @@ function handleBrainDiff(args: Record<string, unknown>): { content: ToolContent[
   return textResult(JSON.stringify(report, null, 2));
 }
 
-function callTool(name: string, args: Record<string, unknown>): { content: ToolContent[] } {
+async function handleBrainConsolidate(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
+  const staleDays =
+    typeof args.stale_days === "number" && Number.isFinite(args.stale_days)
+      ? args.stale_days
+      : 30;
+  const report = await consolidateProject(projectRoot(), { staleDays });
+  return textResult(renderConsolidationReport(report));
+}
+
+function handleBrainGrowth(): { content: ToolContent[] } {
+  const snapshot = buildGrowthSnapshot(projectRoot());
+  return textResult(renderGrowthSnapshot(snapshot));
+}
+
+async function handleBrainReflect(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
+  const action = typeof args.action === "string" ? args.action : "list";
+
+  if (action === "list") {
+    const status =
+      typeof args.status === "string" ? args.status : "pending";
+    const proposals = listReflectionProposals(
+      projectRoot(),
+      status as "pending" | "resolved" | "dismissed" | "all"
+    );
+    return textResult(renderReflectionProposals(proposals));
+  }
+
+  const rawId = typeof args.id === "string" ? args.id : "";
+  if (!rawId) {
+    return textResult("error: id is required for approve/dismiss");
+  }
+  const id = resolveReflectionProposalId(projectRoot(), rawId);
+  if (!id) {
+    return textResult(`error: reflection proposal not found: ${rawId}`);
+  }
+
+  if (action === "approve") {
+    const result = await approveReflectionProposal(projectRoot(), id);
+    if (!result) {
+      return textResult(`error: reflection proposal is not pending: ${rawId}`);
+    }
+    return textResult(`approved ${id}: ${result.note}`);
+  }
+
+  if (action === "dismiss") {
+    const result = dismissReflectionProposal(projectRoot(), id);
+    if (!result) {
+      return textResult(`error: reflection proposal is not pending: ${rawId}`);
+    }
+    return textResult(`dismissed ${id}`);
+  }
+
+  return textResult(`error: unknown reflect action "${action}"`);
+}
+
+async function callTool(name: string, args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   switch (name) {
     case "brain_remember":
       return handleBrainRemember(args);
@@ -1446,6 +1625,12 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
       return handleBrainQuiz(args);
     case "brain_diff":
       return handleBrainDiff(args);
+    case "brain_consolidate":
+      return handleBrainConsolidate(args);
+    case "brain_growth":
+      return handleBrainGrowth();
+    case "brain_reflect":
+      return handleBrainReflect(args);
     case "brain_undo_last":
       return handleBrainUndoLast();
     case "brain_why":
@@ -1461,7 +1646,7 @@ function callTool(name: string, args: Record<string, unknown>): { content: ToolC
 
 // ── Dispatcher ───────────────────────────────────────────────────
 
-export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
+export async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> {
   const id = req.id ?? null;
 
   try {
@@ -1486,7 +1671,7 @@ export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
         name: string;
         arguments?: Record<string, unknown>;
       };
-      const result = callTool(params.name, params.arguments ?? {});
+      const result = await callTool(params.name, params.arguments ?? {});
       return { jsonrpc: "2.0", id, result };
     }
 

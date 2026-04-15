@@ -8,7 +8,6 @@
  * Docs: https://docs.openclaw.ai/concepts/context-engine
  */
 
-import Database from "better-sqlite3";
 import type {
   ContextEngine,
   ContextEngineInfo,
@@ -21,7 +20,9 @@ import type {
   SqueezeConfig,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
-import { initSchema, checkIntegrity, migrateFromLosslessClaw } from "./storage/schema.js";
+import type { BrainDB } from "./storage/db.js";
+import { pgliteFactory } from "./storage/db.js";
+import { initPgSchema, checkPgIntegrity } from "./storage/pg-schema.js";
 import { MessageStore } from "./storage/messages.js";
 import { DirectiveStore } from "./storage/directives.js";
 import { classify } from "./triage/classifier.js";
@@ -40,7 +41,7 @@ export class SqueezeContextEngine implements ContextEngine {
     ownsCompaction: true,
   };
 
-  private db!: Database.Database;
+  private brainDb!: BrainDB;
   private messages!: MessageStore;
   private directives!: DirectiveStore;
   private taskDetector!: TaskDetector;
@@ -61,33 +62,33 @@ export class SqueezeContextEngine implements ContextEngine {
   // ── Lifecycle hooks ────────────────────────────────────────────
 
   async bootstrap(dbPath: string): Promise<void> {
-    this.db = new Database(dbPath);
+    this.brainDb = await pgliteFactory.create(dbPath);
 
-    if (!checkIntegrity(this.db)) {
+    if (!(await checkPgIntegrity(this.brainDb))) {
       console.warn("[oh-my-brain] Database integrity check failed, reinitializing");
     }
 
-    initSchema(this.db);
+    await initPgSchema(this.brainDb);
 
     // Inject token counter if provided (e.g., OpenClaw runtime tokenizer)
     if (this.tokenCounter) {
       setTokenCounter(this.tokenCounter);
     }
 
-    this.messages = new MessageStore(this.db);
-    this.dag = new DagStore(this.db);
+    this.messages = new MessageStore(this.brainDb);
+    this.dag = new DagStore(this.brainDb);
     this.compactor = new Compactor(this.messages, this.dag, {
       freshTailTurns: this.config.freshTailCount,
       batchTurns: 5,
     });
-    this.directives = new DirectiveStore(this.db);
+    this.directives = new DirectiveStore(this.brainDb);
     this.taskDetector = new TaskDetector({
       blendTurns: this.config.taskTransitionBlendTurns,
       newWeight: this.config.taskTransitionNewWeight,
     });
     this.circuitBreaker = new CircuitBreaker(this.config.circuitBreaker);
 
-    this.turnIndex = this.messages.getMaxTurn();
+    this.turnIndex = await this.messages.getMaxTurn();
   }
 
   async ingest(msg: Message, turnIndex?: number): Promise<void> {
@@ -111,21 +112,15 @@ export class SqueezeContextEngine implements ContextEngine {
 
       if (cls.level === Level.Discard) return;
 
-      const msgId = this.messages.insert(msg, effectiveTurn, cls);
+      const msgId = await this.messages.insert(msg, effectiveTurn, cls);
       if (msgId < 0) return;
 
       if (cls.level === Level.Directive) {
         const key = extractDirectiveKey(msg.content);
-        this.directives.addDirective(key, msg.content, msgId);
+        await this.directives.addDirective(key, msg.content, msgId);
       } else if (cls.level === Level.Preference) {
-        // Explicit user preference ("I prefer tabs", "我比較喜歡 X") detected
-        // at classification time. This is the path Codex flagged as missing:
-        // the L2 preference store existed but ingest never wrote to it, so
-        // any README claim about preference tracking was fiction. Implicit
-        // preferences that emerge only through repetition still need the
-        // mention-counting observation loop (not yet implemented).
         const key = extractDirectiveKey(msg.content);
-        this.directives.addPreference(key, msg.content, cls.confidence, msgId);
+        await this.directives.addPreference(key, msg.content, cls.confidence, msgId);
       }
 
       this.circuitBreaker.recordClassifierSuccess();
@@ -133,7 +128,7 @@ export class SqueezeContextEngine implements ContextEngine {
       console.error("[oh-my-brain] ingest error:", err);
       this.circuitBreaker.recordClassifierFailure();
 
-      this.messages.insert(msg, effectiveTurn, {
+      await this.messages.insert(msg, effectiveTurn, {
         level: Level.Observation,
         contentType: "conversation",
         confidence: 0.5,
@@ -146,16 +141,16 @@ export class SqueezeContextEngine implements ContextEngine {
 
   async assemble(budget: TokenBudget): Promise<AssembledContext> {
     const activeDirectives = this.memoryEnabled
-      ? this.directives.getActiveDirectives()
+      ? await this.directives.getActiveDirectives()
       : [];
     const activePreferences = this.memoryEnabled
-      ? this.directives.getActivePreferences(this.config.preferenceConfidenceThreshold)
+      ? await this.directives.getActivePreferences(this.config.preferenceConfidenceThreshold)
       : [];
 
-    const freshTail = this.messages.getRecentByTurn(this.config.freshTailCount);
+    const freshTail = await this.messages.getRecentByTurn(this.config.freshTailCount);
 
     if (this.config.taskDetection && !this.circuitBreaker.isDegraded) {
-      const recent = this.messages.getRecentByTurn(10);
+      const recent = await this.messages.getRecentByTurn(10);
       this.taskDetector.detect(recent);
     }
 
@@ -166,7 +161,7 @@ export class SqueezeContextEngine implements ContextEngine {
       this.config
     );
 
-    const dagNodes = this.dag.getAbstracts(20); // dag is always initialized in bootstrap()
+    const dagNodes = await this.dag.getAbstracts(20);
 
     return assemble({
       systemPrompt: [],
@@ -183,7 +178,7 @@ export class SqueezeContextEngine implements ContextEngine {
   }
 
   async compact(): Promise<void> {
-    this.compactor.run(this.turnIndex);
+    await this.compactor.run(this.turnIndex);
   }
 
   async afterTurn(turn: Turn): Promise<void> {
@@ -204,14 +199,9 @@ export class SqueezeContextEngine implements ContextEngine {
     if (this.circuitBreaker.tick()) {
       this.circuitBreaker.attemptRecovery();
     }
-
-    // TODO: L1→L2 promotion (mention counting)
-    // TODO: Prefetch accuracy tracking
-    // TODO: Task type validation
   }
 
   async prepareSubagentSpawn(parentContext: AssembledContext): Promise<AssembledContext> {
-    // Subagents get L3 directives + task-relevant subset, half budget
     const halfBudget: TokenBudget = {
       maxTokens: Math.floor(parentContext.tokenCount * 0.5),
       usedTokens: 0,
@@ -232,10 +222,10 @@ export class SqueezeContextEngine implements ContextEngine {
     this.memoryEnabled = enabled;
   }
 
-  getStatus(): object {
+  async getStatus(): Promise<object> {
     return {
       turnIndex: this.turnIndex,
-      counts: this.messages.countByLevel(),
+      counts: await this.messages.countByLevel(),
       taskType: this.taskDetector.currentTask,
       weights: this.taskDetector.weights,
       memoryEnabled: this.memoryEnabled,
@@ -252,30 +242,13 @@ export class SqueezeContextEngine implements ContextEngine {
     return this.messages;
   }
 
-  async migrate(existingDbPath: string): Promise<void> {
-    const existingDb = new Database(existingDbPath);
-    migrateFromLosslessClaw(existingDb);
-    existingDb.close();
-  }
-
-  close(): void {
-    this.db?.close();
+  async close(): Promise<void> {
+    await this.brainDb?.close();
   }
 }
 
 // ── Factory for OpenClaw plugin registration ─────────────────────
 
-/**
- * Factory function for registering with OpenClaw.
- *
- * Usage:
- *   import { ohMyBrainFactory } from 'oh-my-brain'
- *   api.registerContextEngine('oh-my-brain', ohMyBrainFactory)
- *
- * The old export name `squeezeClawFactory` is preserved below as a
- * deprecated alias so existing integrations keep compiling during the
- * rename transition.
- */
 export const ohMyBrainFactory: ContextEngineFactory = (config) => {
   const { tokenCounter, ...rest } = config as Partial<SqueezeConfig> & { tokenCounter?: (text: string) => number };
   return new SqueezeContextEngine(rest, tokenCounter);

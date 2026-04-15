@@ -2,7 +2,7 @@
  * DagStore — CRUD for dag_nodes (L1 summary tree).
  */
 
-import type Database from "better-sqlite3";
+import type { BrainDB } from "./db.js";
 import type { DagNode, Level } from "../types.js";
 
 export interface InsertInput {
@@ -17,49 +17,52 @@ export interface InsertInput {
 }
 
 export class DagStore {
-  private db: Database.Database;
+  private db: BrainDB;
 
-  constructor(db: Database.Database) {
+  constructor(db: BrainDB) {
     this.db = db;
   }
 
-  insert(node: InsertInput): number {
+  async insert(node: InsertInput): Promise<number> {
     // Store turn range alongside source IDs for human-readable labels in assembler
     const sourceMeta = JSON.stringify({ ids: node.sourceIds, minTurn: node.minTurn, maxTurn: node.maxTurn });
-    const result = this.db
-      .prepare(
-        `INSERT INTO dag_nodes (parent_id, abstract, overview, detail, source_ids, level)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(
+    const rows = await this.db.query<{ id: number }>(
+      `INSERT INTO dag_nodes (parent_id, abstract, overview, detail, source_ids, level)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
         node.parentId,
         node.abstract,
         node.overview,
         node.detail,
         sourceMeta,
-        node.level
-      );
-    return Number(result.lastInsertRowid);
+        node.level,
+      ],
+    );
+    return rows[0].id;
   }
 
-  getAll(): DagNode[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM dag_nodes ORDER BY id`)
-      .all() as RawRow[];
+  async getAll(): Promise<DagNode[]> {
+    const rows = await this.db.query<RawRow>(
+      `SELECT * FROM dag_nodes ORDER BY id`,
+    );
     return rows.map(toNode);
   }
 
   /** Get the N most recent abstract summaries (for assembler injection). */
-  getAbstracts(limit: number): DagNode[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM dag_nodes ORDER BY id DESC LIMIT ?`)
-      .all(limit) as RawRow[];
+  async getAbstracts(limit: number): Promise<DagNode[]> {
+    const rows = await this.db.query<RawRow>(
+      `SELECT * FROM dag_nodes ORDER BY id DESC LIMIT $1`,
+      [limit],
+    );
     return rows.reverse().map(toNode);
   }
 
-  count(): number {
-    const row = this.db.prepare(`SELECT COUNT(*) as n FROM dag_nodes`).get() as { n: number };
-    return row.n;
+  async count(): Promise<number> {
+    const rows = await this.db.query<{ n: number }>(
+      `SELECT COUNT(*) as n FROM dag_nodes`,
+    );
+    return Number(rows[0].n);
   }
 }
 
@@ -71,7 +74,7 @@ interface RawRow {
   detail: string;
   source_ids: string;
   level: number;
-  created_at: string;
+  created_at: string | Date;
 }
 
 interface SourceMeta {
@@ -92,7 +95,7 @@ function toNode(row: RawRow): DagNode {
     minTurn: sourceMeta.minTurn,
     maxTurn: sourceMeta.maxTurn,
     level: row.level as Level,
-    createdAt: row.created_at,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
 }
 

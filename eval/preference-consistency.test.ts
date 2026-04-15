@@ -59,8 +59,8 @@ describe("L2 Preference Consistency", () => {
     await engine.bootstrap(DB_PATH);
   });
 
-  afterEach(() => {
-    engine.close();
+  afterEach(async () => {
+    await engine.close();
     cleanup(DB_PATH);
   });
 
@@ -105,7 +105,7 @@ describe("L2 Preference Consistency", () => {
     }
 
     // Phase 3: verify all preferences are still in the L2 store
-    const activePrefs = engine
+    const activePrefs = await engine
       .getDirectiveStore()
       .getActivePreferences(0);
 

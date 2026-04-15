@@ -42,8 +42,8 @@ describe("Memory Degradation Check", () => {
     await engine.bootstrap(DB_PATH);
   });
 
-  afterEach(() => {
-    engine.close();
+  afterEach(async () => {
+    await engine.close();
     cleanup(DB_PATH);
   });
 

@@ -8,6 +8,7 @@
  *   oh-my-brain compress         → brain-compress (Claude Code hook)
  *   oh-my-brain codex-sync       → brain-codex-sync (Codex watcher)
  *   oh-my-brain audit            → brain-audit (markdown audit)
+ *   oh-my-brain consolidate      → brain-consolidate (offline growth loop)
  *   oh-my-brain candidates ...   → brain-candidates (review queue)
  *   oh-my-brain mcp              → brain-mcp (MCP server)
  *   oh-my-brain --help           → this message
@@ -31,6 +32,9 @@ Commands:
   compress         Run the Claude Code compress hook (alias: brain-compress)
   codex-sync       Sync Codex sessions (alias: brain-codex-sync)
   audit            Print the markdown audit for this project (alias: brain-audit)
+  consolidate      Run external scan + reflection loop + sleep consolidation
+  growth           Show reflection proposals and the latest offline growth summary
+  reflect          Review and resolve pending reflection proposals
   candidates       Review queue for Memory Candidates (alias: brain-candidates)
   eval             Run Decision Replay evaluation
   diff             Show what the brain learned recently
@@ -94,10 +98,28 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  if (cmd === "consolidate") {
+    const delegated = [process.argv[0], "consolidate", ...args.slice(1)];
+    const mod = await import("./consolidate.js");
+    return await mod.runConsolidateCli(delegated, process.cwd());
+  }
+
+  if (cmd === "growth") {
+    const delegated = [process.argv[0], "growth", ...args.slice(1)];
+    const mod = await import("./consolidate.js");
+    return await mod.runGrowthCli(delegated, process.cwd());
+  }
+
+  if (cmd === "reflect") {
+    const delegated = [process.argv[0], "reflect", ...args.slice(1)];
+    const mod = await import("./consolidate.js");
+    return await mod.runReflectCli(delegated, process.cwd());
+  }
+
   if (cmd === "candidates") {
     // Reconstruct argv so the candidates CLI parses its own subcommand.
     const delegated = [process.argv[0], "candidates", ...args.slice(1)];
-    return runCandidatesCli(delegated, process.cwd());
+    return await runCandidatesCli(delegated, process.cwd());
   }
 
   if (cmd === "mcp") {
@@ -110,7 +132,7 @@ async function main(): Promise<number> {
 
   if (cmd === "import") {
     const delegated = [process.argv[0], "import", ...args.slice(1)];
-    return runImportCli(delegated, process.cwd());
+    return await runImportCli(delegated, process.cwd());
   }
 
   if (cmd === "eval") {

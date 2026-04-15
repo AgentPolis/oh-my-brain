@@ -142,8 +142,8 @@ describe("Multi-Turn Simulation: per-turn token savings", () => {
     await engine.bootstrap(DB_PATH);
   });
 
-  afterEach(() => {
-    engine.close();
+  afterEach(async () => {
+    await engine.close();
     cleanup(DB_PATH);
   });
 
@@ -302,7 +302,7 @@ describe("Multi-Turn Simulation: per-turn token savings", () => {
     console.log("║  SAVINGS GROWTH CURVE                      ║");
     console.log("╠═══════════════════════════════════════════╣");
     for (const m of savingsAtMilestones) {
-      const bar = "█".repeat(Math.floor(m.savings / 2));
+      const bar = "█".repeat(Math.max(0, Math.floor(m.savings / 2)));
       console.log(`║  Turn ${String(m.turn).padStart(2)}: ${m.savings.toFixed(1).padStart(5)}% ${bar}`);
     }
     console.log("╚═══════════════════════════════════════════╝\n");

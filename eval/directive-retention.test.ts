@@ -49,8 +49,8 @@ describe("Directive Retention after 100+ turns", () => {
     await engine.bootstrap(DB_PATH);
   });
 
-  afterEach(() => {
-    engine.close();
+  afterEach(async () => {
+    await engine.close();
     cleanup(DB_PATH);
   });
 
@@ -115,7 +115,7 @@ describe("Directive Retention after 100+ turns", () => {
     console.log(`║  Directives injected:  ${DIRECTIVES.length}`);
     console.log(`║  Directives retained:  ${retained}`);
     console.log(`║  Retention rate:       ${retentionRate.toFixed(0)}%`);
-    console.log(`║  Total messages ingested: ${engine.getMessageStore().getMaxTurn()}`);
+    console.log(`║  Total messages ingested: ${await engine.getMessageStore().getMaxTurn()}`);
     console.log(`║  Assembled messages:   ${assembled.messages.length}`);
     console.log("║──────────────────────────────────────────────║");
     if (retainedList.length) {
@@ -131,7 +131,7 @@ describe("Directive Retention after 100+ turns", () => {
     // Target: >95%
     expect(retentionRate).toBeGreaterThanOrEqual(95);
     // All directives should be in the directive store
-    const storeDirectives = engine.getDirectiveStore().getActiveDirectives();
+    const storeDirectives = await engine.getDirectiveStore().getActiveDirectives();
     expect(storeDirectives.length).toBe(DIRECTIVES.length);
   });
 });

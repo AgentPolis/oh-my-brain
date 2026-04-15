@@ -36,8 +36,8 @@ describe("Token Savings: squeeze-claw vs keep-everything", () => {
     await engine.bootstrap(DB_PATH);
   });
 
-  afterEach(() => {
-    engine.close();
+  afterEach(async () => {
+    await engine.close();
     cleanup(DB_PATH);
   });
 
@@ -60,7 +60,7 @@ describe("Token Savings: squeeze-claw vs keep-everything", () => {
 
     // ── Results ───────────────────────────────────────────────
     const savings = ((baselineTokens - squeezeTokens) / baselineTokens) * 100;
-    const counts = engine.getMessageStore().countByLevel();
+    const counts = await engine.getMessageStore().countByLevel();
 
     console.log("\n╔══════════════════════════════════════════╗");
     console.log("║  CODING SESSION (50 turns) — Token Savings ║");
@@ -99,7 +99,7 @@ describe("Token Savings: squeeze-claw vs keep-everything", () => {
     const assembled = await engine.assemble(budget(baselineTokens));
     const squeezeTokens = assembled.tokenCount;
     const savings = ((baselineTokens - squeezeTokens) / baselineTokens) * 100;
-    const counts = engine.getMessageStore().countByLevel();
+    const counts = await engine.getMessageStore().countByLevel();
 
     console.log("\n╔══════════════════════════════════════════╗");
     console.log("║  NOISY SESSION (80% noise) — Token Savings ║");

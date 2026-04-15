@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { initSchema } from "../src/storage/schema.js";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
+import { initPgSchema } from "../src/storage/pg-schema.js";
 import { DagStore } from "../src/storage/dag.js";
 import { Level } from "../src/types.js";
 import { summarize } from "../src/compact/summarizer.js";
@@ -8,19 +11,24 @@ import type { StoredMessage } from "../src/types.js";
 import { MessageStore } from "../src/storage/messages.js";
 import { Compactor } from "../src/compact/compactor.js";
 
-let db: Database.Database;
+let db: BrainDB;
+let tmpDir: string;
 
-beforeEach(() => {
-  db = new Database(":memory:");
-  initSchema(db);
+beforeEach(async () => {
+  tmpDir = mkdtempSync(join(tmpdir(), "squeeze-compactor-test-"));
+  db = await pgliteFactory.create(tmpDir);
+  await initPgSchema(db);
 });
 
-afterEach(() => db.close());
+afterEach(async () => {
+  await db.close();
+  rmSync(tmpDir, { recursive: true, force: true });
+});
 
 describe("DagStore", () => {
-  it("inserts a dag node and retrieves it", () => {
+  it("inserts a dag node and retrieves it", async () => {
     const dagStore = new DagStore(db);
-    const id = dagStore.insert({
+    const id = await dagStore.insert({
       parentId: null,
       abstract: "User asked about authentication",
       overview: "Decided to use JWT. Rejected sessions due to scale.",
@@ -32,7 +40,7 @@ describe("DagStore", () => {
     });
     expect(id).toBeGreaterThan(0);
 
-    const nodes = dagStore.getAll();
+    const nodes = await dagStore.getAll();
     expect(nodes).toHaveLength(1);
     expect(nodes[0].abstract).toBe("User asked about authentication");
     expect(nodes[0].sourceIds).toEqual([1, 2, 3]);
@@ -40,11 +48,11 @@ describe("DagStore", () => {
     expect(nodes[0].maxTurn).toBe(3);
   });
 
-  it("getAbstracts returns summaries ordered by creation", () => {
+  it("getAbstracts returns summaries ordered by creation", async () => {
     const dagStore = new DagStore(db);
-    dagStore.insert({ parentId: null, abstract: "A", overview: "", detail: "", sourceIds: [1], minTurn: 1, maxTurn: 1, level: Level.Observation });
-    dagStore.insert({ parentId: null, abstract: "B", overview: "", detail: "", sourceIds: [2], minTurn: 2, maxTurn: 2, level: Level.Observation });
-    const abstracts = dagStore.getAbstracts(10);
+    await dagStore.insert({ parentId: null, abstract: "A", overview: "", detail: "", sourceIds: [1], minTurn: 1, maxTurn: 1, level: Level.Observation });
+    await dagStore.insert({ parentId: null, abstract: "B", overview: "", detail: "", sourceIds: [2], minTurn: 2, maxTurn: 2, level: Level.Observation });
+    const abstracts = await dagStore.getAbstracts(10);
     expect(abstracts.map(n => n.abstract)).toEqual(["A", "B"]);
   });
 });
@@ -85,81 +93,78 @@ describe("summarize", () => {
   });
 });
 
-// Note: uses `db` from the outer beforeEach defined at the top of this file.
-// Do not move these tests to a separate file without bringing that fixture along.
 describe("MessageStore compaction methods", () => {
-  it("getCompactable returns L1 messages older than freshTailTurns", () => {
-    const msgStore = new MessageStore(db); // db from outer beforeEach
+  it("getCompactable returns L1 messages older than freshTailTurns", async () => {
+    const msgStore = new MessageStore(db);
     for (let t = 1; t <= 30; t++) {
-      msgStore.insert(
+      await msgStore.insert(
         { role: "user", content: `message at turn ${t}` },
         t,
         { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
       );
     }
     // currentTurn=30, freshTailTurns=20 → compactable = turns 1-10
-    const compactable = msgStore.getCompactable(30, 20);
+    const compactable = await msgStore.getCompactable(30, 20);
     expect(compactable.length).toBeGreaterThan(0);
     expect(compactable.every(m => m.turnIndex <= 10)).toBe(true);
   });
 
-  it("getCompactable excludes already-compacted messages", () => {
+  it("getCompactable excludes already-compacted messages", async () => {
     const msgStore = new MessageStore(db);
     const dagStore = new DagStore(db);
     for (let t = 1; t <= 5; t++) {
-      msgStore.insert(
+      await msgStore.insert(
         { role: "user", content: `msg ${t}` },
         t,
         { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
       );
     }
-    const first = msgStore.getCompactable(10, 5);
-    const dagNodeId = dagStore.insert({ parentId: null, abstract: "test", overview: "", detail: "", sourceIds: [], minTurn: 1, maxTurn: 5, level: Level.Observation });
-    msgStore.markCompacted(first.map(m => m.id), dagNodeId);
-    const second = msgStore.getCompactable(10, 5);
+    const first = await msgStore.getCompactable(10, 5);
+    const dagNodeId = await dagStore.insert({ parentId: null, abstract: "test", overview: "", detail: "", sourceIds: [], minTurn: 1, maxTurn: 5, level: Level.Observation });
+    await msgStore.markCompacted(first.map(m => m.id), dagNodeId);
+    const second = await msgStore.getCompactable(10, 5);
     expect(second).toHaveLength(0);
   });
 });
 
-// Task 5 tests use `db` from the outer beforeEach defined at the top of this file.
 describe("Compactor.run()", () => {
-  it("compacts old L1 messages into dag_nodes", () => {
-    const msgStore = new MessageStore(db); // db from outer beforeEach
+  it("compacts old L1 messages into dag_nodes", async () => {
+    const msgStore = new MessageStore(db);
     const dagStore = new DagStore(db);
     const compactor = new Compactor(msgStore, dagStore, { freshTailTurns: 5, batchTurns: 3 });
 
     for (let t = 1; t <= 20; t++) {
-      msgStore.insert(
+      await msgStore.insert(
         { role: "user", content: `user message at turn ${t}, asking about topic ${t % 4}` },
         t,
         { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
       );
-      msgStore.insert(
+      await msgStore.insert(
         { role: "assistant", content: `assistant done handling turn ${t}` },
         t,
         { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
       );
     }
 
-    compactor.run(20);
+    await compactor.run(20);
 
-    expect(dagStore.count()).toBeGreaterThan(0);
-    const stillCompactable = msgStore.getCompactable(20, 5);
+    expect(await dagStore.count()).toBeGreaterThan(0);
+    const stillCompactable = await msgStore.getCompactable(20, 5);
     expect(stillCompactable).toHaveLength(0);
   });
 
-  it("does nothing if no compactable messages", () => {
+  it("does nothing if no compactable messages", async () => {
     const msgStore = new MessageStore(db);
     const dagStore = new DagStore(db);
     const compactor = new Compactor(msgStore, dagStore, { freshTailTurns: 20, batchTurns: 5 });
 
     for (let t = 1; t <= 5; t++) {
-      msgStore.insert(
+      await msgStore.insert(
         { role: "user", content: `msg ${t}` }, t,
         { level: Level.Observation, contentType: "conversation", confidence: 0.6 }
       );
     }
-    compactor.run(5);
-    expect(dagStore.count()).toBe(0);
+    await compactor.run(5);
+    expect(await dagStore.count()).toBe(0);
   });
 });

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.7.0] - 2026-04-15
+
+**PGLite + Knowledge Graph: enterprise-grade architecture.**
+Replaces better-sqlite3 with PGLite (embedded PostgreSQL) and adds a
+unified knowledge graph. Zero native binary dependencies. Same schema
+works on PGLite (local), PostgreSQL (self-hosted), or Supabase (managed).
+
+### Added
+
+- DB abstraction layer (`BrainDB` interface) for swappable backends.
+- PGLite implementation — real PostgreSQL in Node.js, zero setup.
+- PostgreSQL schema with TIMESTAMPTZ, TEXT[], JSONB, SERIAL types.
+- Knowledge graph tables (`graph_nodes`, `graph_edges`) with multi-hop
+  traversal via recursive CTE.
+- `GraphStore` with addNode, addEdge, getNeighbors, findPath,
+  searchNodes, getSummary.
+- `brain_search --connected` for graph-powered entity traversal.
+- `brain_status` now reports `graph_nodes` and `graph_edges` counts.
+- `oh-my-brain migrate-to-pg` one-time migration from JSONL/JSON files.
+- Unified PostgreSQL tables for events, archive, relations, habits, schemas.
+
+### Changed
+
+- All store methods are now async (better-sqlite3 was sync).
+- SQL params use PostgreSQL syntax (`$1, $2`) instead of SQLite (`?`).
+- Engine bootstrap creates PGLite database at `.squeeze/brain.pg/`.
+- `vitest.config.ts` uses forks pool with 30s timeout for PGLite tests.
+
+### Removed
+
+- `better-sqlite3` dependency — no more native binary ABI headaches.
+- `@types/better-sqlite3` dev dependency.
+- SQLite-specific schema migrations and PRAGMA calls.
+
 ## [0.6.0] - 2026-04-14
 
 **Cognitive memory upgrade: relations and schemas.**

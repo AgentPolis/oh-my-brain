@@ -1,54 +1,49 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { DirectiveStore } from "../src/storage/directives.js";
-import { initSchema } from "../src/storage/schema.js";
+import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { existsSync, unlinkSync } from "fs";
-
-const TEST_DB = join(tmpdir(), `squeeze-directives-test-${Date.now()}.db`);
+import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
+import { initPgSchema } from "../src/storage/pg-schema.js";
+import { DirectiveStore } from "../src/storage/directives.js";
 
 describe("DirectiveStore", () => {
-  let db: Database.Database;
+  let db: BrainDB;
   let store: DirectiveStore;
+  let tmpDir: string;
 
   /** Insert a dummy message row so foreign key constraints are satisfied. */
-  function insertMsg(id?: number): number {
-    const result = db
-      .prepare(
-        `INSERT INTO messages (role, content, level, content_type, confidence, turn_index)
-         VALUES ('user', 'test', 1, 'conversation', 0.5, 0)`
-      )
-      .run();
-    return Number(result.lastInsertRowid);
+  async function insertMsg(): Promise<number> {
+    const rows = await db.query<{ id: number }>(
+      `INSERT INTO messages (role, content, level, content_type, confidence, turn_index)
+       VALUES ('user', 'test', 1, 'conversation', 0.5, 0)
+       RETURNING id`,
+    );
+    return rows[0].id;
   }
 
-  beforeEach(() => {
-    db = new Database(TEST_DB);
-    initSchema(db);
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-directives-test-"));
+    db = await pgliteFactory.create(tmpDir);
+    await initPgSchema(db);
     store = new DirectiveStore(db);
   });
 
-  afterEach(() => {
-    db.close();
-    for (const suffix of ["", "-wal", "-shm"]) {
-      try {
-        if (existsSync(TEST_DB + suffix)) unlinkSync(TEST_DB + suffix);
-      } catch {}
-    }
+  afterEach(async () => {
+    await db.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   // ── L3 Directive Tests ──────────────────────────────────────────
 
-  it("adding a directive with the same key supersedes the old one", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
+  it("adding a directive with the same key supersedes the old one", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
 
-    const id1 = store.addDirective("lang", "always reply in English", msgId1);
-    const id2 = store.addDirective("lang", "always reply in French", msgId2);
+    const id1 = await store.addDirective("lang", "always reply in English", msgId1);
+    const id2 = await store.addDirective("lang", "always reply in French", msgId2);
 
     // The old directive should be superseded
-    const history = store.getDirectiveHistory("lang");
+    const history = await store.getDirectiveHistory("lang");
     const old = history.find((d) => d.id === id1)!;
     expect(old.supersededBy).not.toBeNull();
     expect(old.supersededAt).not.toBeNull();
@@ -58,49 +53,49 @@ describe("DirectiveStore", () => {
     expect(newer.supersededBy).toBeNull();
   });
 
-  it("superseded directive is not returned by getActiveDirectives", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
+  it("superseded directive is not returned by getActiveDirectives", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
 
-    store.addDirective("format", "use markdown", msgId1);
-    store.addDirective("format", "use plain text", msgId2);
+    await store.addDirective("format", "use markdown", msgId1);
+    await store.addDirective("format", "use plain text", msgId2);
 
-    const active = store.getActiveDirectives();
+    const active = await store.getActiveDirectives();
     const formatDirectives = active.filter((d) => d.key === "format");
     expect(formatDirectives).toHaveLength(1);
     expect(formatDirectives[0].value).toBe("use plain text");
   });
 
-  it("supersede + insert is atomic (old is only superseded if new succeeds)", () => {
-    const msgId = insertMsg();
-    store.addDirective("tone", "be formal", msgId);
+  it("supersede + insert is atomic (old is only superseded if new succeeds)", async () => {
+    const msgId = await insertMsg();
+    await store.addDirective("tone", "be formal", msgId);
 
     // Verify the directive is active before attempted second insert
-    expect(store.getActiveDirectives().filter((d) => d.key === "tone")).toHaveLength(1);
+    expect((await store.getActiveDirectives()).filter((d) => d.key === "tone")).toHaveLength(1);
 
     // A normal second insert should work atomically
-    const msgId2 = insertMsg();
-    store.addDirective("tone", "be casual", msgId2);
+    const msgId2 = await insertMsg();
+    await store.addDirective("tone", "be casual", msgId2);
 
-    const active = store.getActiveDirectives().filter((d) => d.key === "tone");
+    const active = (await store.getActiveDirectives()).filter((d) => d.key === "tone");
     expect(active).toHaveLength(1);
     expect(active[0].value).toBe("be casual");
 
     // The full history should have both entries
-    const history = store.getDirectiveHistory("tone");
+    const history = await store.getDirectiveHistory("tone");
     expect(history).toHaveLength(2);
   });
 
-  it("getDirectiveHistory returns the full chain", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
-    const msgId3 = insertMsg();
+  it("getDirectiveHistory returns the full chain", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
+    const msgId3 = await insertMsg();
 
-    store.addDirective("style", "v1", msgId1);
-    store.addDirective("style", "v2", msgId2);
-    store.addDirective("style", "v3", msgId3);
+    await store.addDirective("style", "v1", msgId1);
+    await store.addDirective("style", "v2", msgId2);
+    await store.addDirective("style", "v3", msgId3);
 
-    const history = store.getDirectiveHistory("style");
+    const history = await store.getDirectiveHistory("style");
     expect(history).toHaveLength(3);
     expect(history.map((d) => d.value)).toEqual(["v1", "v2", "v3"]);
 
@@ -110,33 +105,33 @@ describe("DirectiveStore", () => {
     expect(history[2].supersededBy).toBeNull();
   });
 
-  it("directives with different keys do not interfere", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
+  it("directives with different keys do not interfere", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
 
-    store.addDirective("lang", "English", msgId1);
-    store.addDirective("tone", "formal", msgId2);
+    await store.addDirective("lang", "English", msgId1);
+    await store.addDirective("tone", "formal", msgId2);
 
-    const active = store.getActiveDirectives();
+    const active = await store.getActiveDirectives();
     expect(active).toHaveLength(2);
     expect(active.map((d) => d.key).sort()).toEqual(["lang", "tone"]);
   });
 
-  it("stores and retrieves directive evidence when provided", () => {
-    const msgId = insertMsg();
-    store.addDirective("lang", "always reply in English", msgId, false, {
+  it("stores and retrieves directive evidence when provided", async () => {
+    const msgId = await insertMsg();
+    await store.addDirective("lang", "always reply in English", msgId, false, {
       text: "不要再用中文了",
       turn: 7,
     });
 
-    const [directive] = store.getActiveDirectives();
+    const [directive] = await store.getActiveDirectives();
     expect(directive.evidenceText).toBe("不要再用中文了");
     expect(directive.evidenceTurn).toBe(7);
   });
 
-  it("stores directive event_time separately from created_at", () => {
-    const msgId = insertMsg();
-    store.addDirective(
+  it("stores directive event_time separately from created_at", async () => {
+    const msgId = await insertMsg();
+    await store.addDirective(
       "project",
       "I started the project on March 15, 2026",
       msgId,
@@ -145,130 +140,71 @@ describe("DirectiveStore", () => {
       "2026-03-15T00:00:00.000Z"
     );
 
-    const [directive] = store.getActiveDirectives();
-    expect(directive.eventTime).toBe("2026-03-15T00:00:00.000Z");
+    const [directive] = await store.getActiveDirectives();
+    expect(directive.eventTime).toContain("2026-03-15");
     expect(directive.createdAt).toBeTruthy();
   });
 
-  it("existing directives without evidence remain readable", () => {
-    const msgId = insertMsg();
-    store.addDirective("tone", "be formal", msgId);
+  it("existing directives without evidence remain readable", async () => {
+    const msgId = await insertMsg();
+    await store.addDirective("tone", "be formal", msgId);
 
-    const [directive] = store.getActiveDirectives();
+    const [directive] = await store.getActiveDirectives();
     expect(directive.evidenceText).toBeNull();
     expect(directive.evidenceTurn).toBeNull();
   });
 
   // ── L2 Preference Tests ─────────────────────────────────────────
 
-  it("addPreference with supersede works the same as directives", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
+  it("addPreference with supersede works the same as directives", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
 
-    store.addPreference("editor", "vim", 0.7, msgId1);
-    store.addPreference("editor", "vscode", 0.9, msgId2);
+    await store.addPreference("editor", "vim", 0.7, msgId1);
+    await store.addPreference("editor", "vscode", 0.9, msgId2);
 
-    const active = store.getActivePreferences();
+    const active = await store.getActivePreferences();
     const editorPrefs = active.filter((p) => p.key === "editor");
     expect(editorPrefs).toHaveLength(1);
     expect(editorPrefs[0].value).toBe("vscode");
     expect(editorPrefs[0].confidence).toBe(0.9);
   });
 
-  it("getActivePreferences filters by minConfidence", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
+  it("getActivePreferences filters by minConfidence", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
 
-    store.addPreference("color", "blue", 0.3, msgId1);
-    store.addPreference("font", "monospace", 0.8, msgId2);
+    await store.addPreference("color", "blue", 0.3, msgId1);
+    await store.addPreference("font", "monospace", 0.8, msgId2);
 
-    const highConf = store.getActivePreferences(0.5);
+    const highConf = await store.getActivePreferences(0.5);
     expect(highConf).toHaveLength(1);
     expect(highConf[0].key).toBe("font");
 
-    const all = store.getActivePreferences(0);
+    const all = await store.getActivePreferences(0);
     expect(all).toHaveLength(2);
   });
 
-  it("stores preference event_time separately from created_at", () => {
-    const msgId = insertMsg();
-    store.addPreference("stack", "TypeScript", 0.9, msgId, "2026-03-15T00:00:00.000Z");
+  it("stores preference event_time separately from created_at", async () => {
+    const msgId = await insertMsg();
+    await store.addPreference("stack", "TypeScript", 0.9, msgId, "2026-03-15T00:00:00.000Z");
 
-    const [preference] = store.getActivePreferences();
-    expect(preference.eventTime).toBe("2026-03-15T00:00:00.000Z");
+    const [preference] = await store.getActivePreferences();
+    expect(preference.eventTime).toContain("2026-03-15");
     expect(preference.createdAt).toBeTruthy();
   });
 
-  it("migrates existing directives to event_time = created_at", () => {
-    db.close();
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+  it("fixupSuperseded links old records to the new id", async () => {
+    const msgId1 = await insertMsg();
+    const msgId2 = await insertMsg();
 
-    const legacyDb = new Database(TEST_DB);
-    legacyDb.exec(`
-      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      INSERT INTO schema_meta (key, value) VALUES ('version', '4');
-      CREATE TABLE directives (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        source_msg_id INTEGER,
-        created_at TEXT NOT NULL,
-        confirmed_by_user INTEGER NOT NULL DEFAULT 0,
-        evidence_text TEXT,
-        evidence_turn INTEGER,
-        last_referenced_at TEXT NOT NULL,
-        superseded_by INTEGER,
-        superseded_at TEXT
-      );
-      CREATE TABLE preferences (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        confidence REAL NOT NULL DEFAULT 0.5,
-        source_msg_id INTEGER,
-        created_at TEXT NOT NULL,
-        superseded_by INTEGER,
-        superseded_at TEXT
-      );
-      CREATE TABLE messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        level INTEGER NOT NULL DEFAULT 1,
-        content_type TEXT NOT NULL DEFAULT 'conversation',
-        confidence REAL NOT NULL DEFAULT 0.5,
-        turn_index INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        compacted_by INTEGER
-      );
-    `);
-    legacyDb
-      .prepare(
-        `INSERT INTO directives (key, value, created_at, confirmed_by_user, last_referenced_at)
-         VALUES (?, ?, ?, 0, ?)`
-      )
-      .run("lang", "Always use TypeScript", "2026-04-01T10:00:00.000Z", "2026-04-01T10:00:00.000Z");
-    legacyDb.close();
-
-    db = new Database(TEST_DB);
-    initSchema(db);
-    store = new DirectiveStore(db);
-
-    const [directive] = store.getActiveDirectives();
-    expect(directive.eventTime).toBe("2026-04-01T10:00:00.000Z");
-  });
-
-  it("fixupSuperseded links old records to the new id", () => {
-    const msgId1 = insertMsg();
-    const msgId2 = insertMsg();
-
-    const id1 = store.addDirective("rule", "old rule", msgId1);
-    const id2 = store.addDirective("rule", "new rule", msgId2);
+    const id1 = await store.addDirective("rule", "old rule", msgId1);
+    const id2 = await store.addDirective("rule", "new rule", msgId2);
 
     // Backward-compatibility helper should be safe even if no placeholder rows exist.
-    store.fixupSuperseded("directives", id2, "rule");
+    await store.fixupSuperseded("directives", id2, "rule");
 
-    const history = store.getDirectiveHistory("rule");
+    const history = await store.getDirectiveHistory("rule");
     const old = history.find((d) => d.id === id1)!;
     expect(old.supersededBy).toBe(id2);
   });

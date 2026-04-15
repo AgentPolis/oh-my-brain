@@ -2,11 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SqueezeContextEngine } from "../src/engine.js";
 import { Level } from "../src/types.js";
 import type { TokenBudget, Turn } from "../src/types.js";
-import { existsSync, unlinkSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-
-const TEST_DB = join(tmpdir(), `squeeze-test-${Date.now()}.db`);
 
 function budget(available: number): TokenBudget {
   return { maxTokens: available, usedTokens: 0, available };
@@ -14,21 +12,21 @@ function budget(available: number): TokenBudget {
 
 describe("SqueezeContextEngine", () => {
   let engine: SqueezeContextEngine;
+  let tmpDir: string;
 
   beforeEach(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "squeeze-engine-test-"));
     engine = new SqueezeContextEngine();
-    await engine.bootstrap(TEST_DB);
+    await engine.bootstrap(tmpDir);
   });
 
-  afterEach(() => {
-    engine.close();
-    for (const suffix of ["", "-wal", "-shm"]) {
-      try { if (existsSync(TEST_DB + suffix)) unlinkSync(TEST_DB + suffix); } catch {}
-    }
+  afterEach(async () => {
+    await engine.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("bootstraps successfully", () => {
-    const status = engine.getStatus() as any;
+  it("bootstraps successfully", async () => {
+    const status = await engine.getStatus() as any;
     expect(status.turnIndex).toBe(0);
     expect(status.degraded).toBe(false);
   });
@@ -42,7 +40,7 @@ describe("SqueezeContextEngine", () => {
     await engine.ingest({ role: "user", content: "ok" });
     await engine.ingest({ role: "user", content: "thanks" });
 
-    const counts = engine.getMessageStore().countByLevel();
+    const counts = await engine.getMessageStore().countByLevel();
     expect(counts.L0).toBe(0); // discarded, not stored
     expect(counts.L1).toBe(0);
   });
@@ -50,14 +48,14 @@ describe("SqueezeContextEngine", () => {
   it("stores regular messages as L1", async () => {
     await engine.ingest({ role: "user", content: "Can you help me with this bug?" });
 
-    const counts = engine.getMessageStore().countByLevel();
+    const counts = await engine.getMessageStore().countByLevel();
     expect(counts.L1).toBe(1);
   });
 
   it("extracts L3 directives", async () => {
     await engine.ingest({ role: "user", content: "Always use TypeScript for new files" });
 
-    const directives = engine.getDirectiveStore().getActiveDirectives();
+    const directives = await engine.getDirectiveStore().getActiveDirectives();
     expect(directives.length).toBe(1);
     expect(directives[0].value).toContain("Always use TypeScript");
   });
@@ -66,7 +64,7 @@ describe("SqueezeContextEngine", () => {
     await engine.ingest({ role: "user", content: "Always use spaces for indentation" });
     await engine.ingest({ role: "user", content: "Never push directly to main" });
 
-    const allDirectives = engine.getMessageStore().getByLevel(Level.Directive);
+    const allDirectives = await engine.getMessageStore().getByLevel(Level.Directive);
     expect(allDirectives.length).toBe(2);
   });
 
@@ -127,7 +125,7 @@ describe("SqueezeContextEngine", () => {
     await engine.afterTurn(turn);
 
     // Assistant + tool messages should be ingested
-    const counts = engine.getMessageStore().countByLevel();
+    const counts = await engine.getMessageStore().countByLevel();
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     expect(total).toBeGreaterThanOrEqual(2);
   });

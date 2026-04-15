@@ -57,8 +57,8 @@ describe("Memory Actions", () => {
   }
 
   describe("applyRememberDirective", () => {
-    it("writes the directive to MEMORY.md and appends an action to the log", () => {
-      const action = applyRememberDirective(
+    it("writes the directive to MEMORY.md and appends an action to the log", async () => {
+      const action = await applyRememberDirective(
         { projectRoot: tmp, source: "claude", sessionId: "s1" },
         { text: "Always use TypeScript strict mode" }
       );
@@ -77,10 +77,10 @@ describe("Memory Actions", () => {
       expect(log[0].id).toBe(action.id);
     });
 
-    it("captures the prior MEMORY.md state in the snapshot when the file already exists", () => {
+    it("captures the prior MEMORY.md state in the snapshot when the file already exists", async () => {
       writeFileSync(memoryPath(), "# pre-existing content\n");
 
-      const action = applyRememberDirective(
+      const action = await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Never commit generated files" }
       );
@@ -88,12 +88,12 @@ describe("Memory Actions", () => {
       expect(action.payload.memoryPathSnapshot).toBe("# pre-existing content\n");
     });
 
-    it("logs the action even when the directive was already present (dedup hit)", () => {
-      applyRememberDirective(
+    it("logs the action even when the directive was already present (dedup hit)", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Vitest" }
       );
-      const second = applyRememberDirective(
+      const second = await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Vitest" }
       );
@@ -114,10 +114,10 @@ describe("Memory Actions", () => {
       return created.id;
     }
 
-    it("approves the candidate, writes to MEMORY.md, and logs an action", () => {
+    it("approves the candidate, writes to MEMORY.md, and logs an action", async () => {
       const candidateId = seedCandidate("這個本來就要一直移動");
 
-      const action = applyPromoteCandidate(
+      const action = await applyPromoteCandidate(
         { projectRoot: tmp, source: "cli" },
         {
           candidateId,
@@ -140,22 +140,22 @@ describe("Memory Actions", () => {
       expect(store.candidates[candidateId].status).toBe("approved");
     });
 
-    it("returns null when the candidate is not pending", () => {
+    it("returns null when the candidate is not pending", async () => {
       const candidateId = seedCandidate("test candidate");
 
       // First approve succeeds
-      applyPromoteCandidate({ projectRoot: tmp, source: "cli" }, { candidateId });
+      await applyPromoteCandidate({ projectRoot: tmp, source: "cli" }, { candidateId });
 
       // Second attempt returns null
-      const second = applyPromoteCandidate(
+      const second = await applyPromoteCandidate(
         { projectRoot: tmp, source: "cli" },
         { candidateId }
       );
       expect(second).toBeNull();
     });
 
-    it("returns null when the candidate id does not exist", () => {
-      const action = applyPromoteCandidate(
+    it("returns null when the candidate id does not exist", async () => {
+      const action = await applyPromoteCandidate(
         { projectRoot: tmp, source: "cli" },
         { candidateId: "nonexistent" }
       );
@@ -186,13 +186,13 @@ describe("Memory Actions", () => {
   });
 
   describe("applyRetireDirective", () => {
-    it("retires matching directives and logs the action with snapshot", () => {
+    it("retires matching directives and logs the action with snapshot", async () => {
       // Set up two directives
-      applyRememberDirective(
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Python 3.11" }
       );
-      applyRememberDirective(
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Vitest" }
       );
@@ -213,8 +213,8 @@ describe("Memory Actions", () => {
       expect(memoryAfter).toContain("## oh-my-brain archive");
     });
 
-    it("returns retiredCount=0 when nothing matches", () => {
-      applyRememberDirective(
+    it("returns retiredCount=0 when nothing matches", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Vitest" }
       );
@@ -234,8 +234,8 @@ describe("Memory Actions", () => {
       expect(result).toBeNull();
     });
 
-    it("undoes a RememberDirective by removing it from MEMORY.md", () => {
-      applyRememberDirective(
+    it("undoes a RememberDirective by removing it from MEMORY.md", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use HTTPS" }
       );
@@ -255,14 +255,14 @@ describe("Memory Actions", () => {
       expect(log[1].kind).toBe("UndoAction");
     });
 
-    it("undoes a PromoteCandidate by reverting both MEMORY.md AND candidate state", () => {
+    it("undoes a PromoteCandidate by reverting both MEMORY.md AND candidate state", async () => {
       const store = loadCandidateStore(tmp);
       const [created] = ingestCandidates(store, ["always lowercase filenames"], {
         source: "claude",
       });
       saveCandidateStore(tmp, store);
 
-      applyPromoteCandidate(
+      await applyPromoteCandidate(
         { projectRoot: tmp, source: "cli" },
         { candidateId: created.id }
       );
@@ -298,8 +298,8 @@ describe("Memory Actions", () => {
       );
     });
 
-    it("undoes a RetireDirective by restoring archived directives", () => {
-      applyRememberDirective(
+    it("undoes a RetireDirective by restoring archived directives", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Python 3.11" }
       );
@@ -320,12 +320,12 @@ describe("Memory Actions", () => {
       expect(restored).toBe(memoryBefore);
     });
 
-    it("skips already-undone actions on subsequent undo calls", () => {
-      applyRememberDirective(
+    it("skips already-undone actions on subsequent undo calls", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Vitest" }
       );
-      applyRememberDirective(
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use Prettier" }
       );
@@ -345,8 +345,8 @@ describe("Memory Actions", () => {
   });
 
   describe("whyDirective", () => {
-    it("returns matching actions in chronological order", () => {
-      applyRememberDirective(
+    it("returns matching actions in chronological order", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "claude" },
         { text: "Always use TypeScript" }
       );
@@ -357,7 +357,7 @@ describe("Memory Actions", () => {
         { source: "codex" }
       );
       saveCandidateStore(tmp, store);
-      applyPromoteCandidate(
+      await applyPromoteCandidate(
         { projectRoot: tmp, source: "cli" },
         {
           candidateId: created.id,
@@ -378,8 +378,8 @@ describe("Memory Actions", () => {
       expect(result.summary).toContain("No actions found");
     });
 
-    it("matches case-insensitively", () => {
-      applyRememberDirective(
+    it("matches case-insensitively", async () => {
+      await applyRememberDirective(
         { projectRoot: tmp, source: "cli" },
         { text: "Always use HTTPS" }
       );

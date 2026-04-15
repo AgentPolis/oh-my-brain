@@ -56,8 +56,8 @@ describe("Cross-agent handoff", () => {
     return join(projectRoot, "MEMORY.md");
   }
 
-  function callMcp(name: string, args: Record<string, unknown> = {}) {
-    const response = handleRequest({
+  async function callMcp(name: string, args: Record<string, unknown> = {}) {
+    const response = await handleRequest({
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
@@ -134,7 +134,7 @@ describe("Cross-agent handoff", () => {
     expect(content).not.toContain("[codex codex-1] Always use HTTPS");
   });
 
-  it("MCP server recalls directives written by both agents via brain_recall", () => {
+  it("MCP server recalls directives written by both agents via brain_recall", async () => {
     // Agent A writes via compress path
     appendDirectivesToMemory(["Always review before merging"], memoryPath(), {
       source: "claude",
@@ -148,14 +148,14 @@ describe("Cross-agent handoff", () => {
     });
 
     // Agent C uses the MCP server to recall everything
-    const recalled = callMcp("brain_recall", { mode: "all" });
+    const recalled = await callMcp("brain_recall", { mode: "all" });
 
     expect(recalled).toContain("Always review before merging");
     expect(recalled).toContain("Never force-push to main");
     expect(recalled).toContain("Active directives (2)");
   });
 
-  it("MCP brain_remember + brain_recall round-trip works from a third agent", () => {
+  it("MCP brain_remember + brain_recall round-trip works from a third agent", async () => {
     // Existing state: Claude wrote one directive, Codex wrote another
     appendDirectivesToMemory(["Always prefer composition over inheritance"], memoryPath(), {
       source: "claude",
@@ -167,7 +167,7 @@ describe("Cross-agent handoff", () => {
     });
 
     // Cursor (via MCP) adds a third directive
-    const addResult = callMcp("brain_remember", {
+    const addResult = await callMcp("brain_remember", {
       text: "Always keep functions under 30 lines",
       source: "cursor",
       session_id: "cursor-1",
@@ -175,7 +175,7 @@ describe("Cross-agent handoff", () => {
     expect(addResult).toMatch(/remembered/);
 
     // Cursor then recalls — should see all three
-    const recalled = callMcp("brain_recall", { mode: "all" });
+    const recalled = await callMcp("brain_recall", { mode: "all" });
     expect(recalled).toContain("Always prefer composition over inheritance");
     expect(recalled).toContain("Never swallow exceptions silently");
     expect(recalled).toContain("Always keep functions under 30 lines");

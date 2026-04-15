@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import Database from "better-sqlite3";
+import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
+import { initPgSchema } from "../src/storage/pg-schema.js";
 import { ArchiveStore, estimateArchiveTimestamp, extractTags } from "../src/storage/archive.js";
-import { initSchema } from "../src/storage/schema.js";
 import { DagStore } from "../src/storage/dag.js";
 import { MessageStore } from "../src/storage/messages.js";
 import { Compactor } from "../src/compact/compactor.js";
@@ -184,21 +184,21 @@ describe("ArchiveStore", () => {
 });
 
 describe("Compactor archive integration", () => {
-  let db: Database.Database;
+  let db: BrainDB;
   let tmp: string;
 
-  beforeEach(() => {
-    db = new Database(":memory:");
-    initSchema(db);
+  beforeEach(async () => {
     tmp = mkdtempSync(join(tmpdir(), "ohmybrain-compactor-"));
+    db = await pgliteFactory.create(join(tmp, "pg"));
+    await initPgSchema(db);
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("archives L1 messages before marking them compacted", () => {
+  it("archives L1 messages before marking them compacted", async () => {
     const messages = new MessageStore(db);
     const dag = new DagStore(db);
     const archive = new ArchiveStore(join(tmp, ".squeeze"));
@@ -211,14 +211,14 @@ describe("Compactor archive integration", () => {
     });
 
     for (let turn = 1; turn <= 4; turn += 1) {
-      messages.insert(
+      await messages.insert(
         { role: "user", content: `Turn ${turn} discussed car service and deployment details in depth.` },
         turn,
         { level: Level.Observation, contentType: "conversation", confidence: 0.8 }
       );
     }
 
-    compactor.run(4);
+    await compactor.run(4);
 
     const archived = archive.readAll();
     expect(archived.length).toBeGreaterThan(0);

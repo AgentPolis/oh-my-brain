@@ -143,6 +143,9 @@ brain-compress     # Claude Code Stop hook
 brain-codex-sync   # Codex session watcher
 brain-candidates   # Memory Candidates review queue
 brain-audit        # human-readable markdown audit
+brain-consolidate  # offline growth loop (external scan + reflection + sleep consolidation)
+brain-growth       # latest growth summary + pending reflection proposals
+brain-reflect      # approve or dismiss reflection proposals
 brain-mcp          # MCP server (for Cursor, Windsurf, Claude Desktop, etc.)
 ```
 
@@ -186,6 +189,42 @@ brain-candidates approve f22e9b2a --as "the cursor should always keep moving"
 brain-codex-sync           # one-shot
 brain-codex-sync --watch   # continuous
 ./scripts/install-codex-watch.sh  # macOS LaunchAgent
+```
+
+### As an offline growth loop
+
+```bash
+oh-my-brain consolidate
+# or:
+brain-consolidate --stale-days 30
+```
+
+This runs four background-style maintenance steps against the current
+project:
+
+- external scan of project rules and AI instruction files
+- reflection loop for stale directives, conflicts, and merge proposals
+- sleep consolidation of habits, schemas, and timeline index
+- growth journal entry so you can inspect what changed later
+
+`brain-compress` now runs this loop automatically after the normal
+session compression pass, so Claude Code Stop hooks keep the brain
+growing even if you never invoke it manually.
+
+To inspect what changed:
+
+```bash
+oh-my-brain growth
+# or:
+brain-growth
+```
+
+To close the loop on pending proposals:
+
+```bash
+oh-my-brain reflect list
+oh-my-brain reflect approve <proposal-id>
+oh-my-brain reflect dismiss <proposal-id>
 ```
 
 ### As an MCP server for Cursor / Windsurf / Claude Desktop
@@ -313,9 +352,8 @@ ready for it; the release isn't.
 ### What about privacy?
 
 Everything is local. No cloud. No API keys. No telemetry. `MEMORY.md`
-lives in your project directory. The SQLite store lives in `.squeeze/`
-(gitignored by default; kept at that path for backward compatibility).
-You can inspect, edit, commit, or delete any of it.
+lives in your project directory. The PGLite database lives in `.squeeze/brain.pg/`
+(gitignored by default). You can inspect, edit, commit, or delete any of it.
 
 ### Is the L3 classifier safe against prompt injection?
 
@@ -360,14 +398,25 @@ npm run test:run   # single run
 npm run verify     # lint + tests + build + pack dry-run
 ```
 
+## Architecture
+
+oh-my-brain uses PGLite (embedded PostgreSQL) — real PostgreSQL
+running in your Node.js process. Zero setup, zero Docker, zero
+cloud. But when you need to scale, change one connection string
+to migrate to Supabase or any managed PostgreSQL.
+
+- **Knowledge Graph** — Every memory (event, directive, person,
+  habit, schema) is a node. Every relationship is an edge.
+  Multi-hop traversal finds connections you didn't know existed.
+- **PostgreSQL-native** — TEXT[], JSONB, TIMESTAMPTZ, recursive
+  CTE, proper indexes. Not SQLite pretending to be a database.
+- **Enterprise-ready** — Same schema works on PGLite (local),
+  PostgreSQL (self-hosted), or Supabase (managed cloud).
+
 ## Runtime requirements
 
 - Node.js 20 – 25 (recommended: Node 22 LTS)
-- If `better-sqlite3` was built under a different Node version:
-
-```bash
-npm rebuild better-sqlite3
-```
+- No native binary dependencies (PGLite is pure JS/WASM)
 
 ## License
 

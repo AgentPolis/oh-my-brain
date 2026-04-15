@@ -34,8 +34,8 @@ describe("MCP server", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  function callTool(name: string, args: Record<string, unknown> = {}) {
-    const response = handleRequest({
+  async function callTool(name: string, args: Record<string, unknown> = {}) {
+    const response = await handleRequest({
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
@@ -44,8 +44,8 @@ describe("MCP server", () => {
     return response;
   }
 
-  it("responds to initialize with protocol + server info", () => {
-    const response = handleRequest({
+  it("responds to initialize with protocol + server info", async () => {
+    const response = await handleRequest({
       jsonrpc: "2.0",
       id: 0,
       method: "initialize",
@@ -61,8 +61,8 @@ describe("MCP server", () => {
     expect(result.capabilities.tools).toBeDefined();
   });
 
-  it("lists the core brain_* tools including brain_search", () => {
-    const response = handleRequest({
+  it("lists the core brain_* tools including brain_search", async () => {
+    const response = await handleRequest({
       jsonrpc: "2.0",
       id: 1,
       method: "tools/list",
@@ -75,10 +75,13 @@ describe("MCP server", () => {
     expect(names).toContain("brain_candidates");
     expect(names).toContain("brain_retire");
     expect(names).toContain("brain_status");
+    expect(names).toContain("brain_consolidate");
+    expect(names).toContain("brain_growth");
+    expect(names).toContain("brain_reflect");
   });
 
-  it("brain_remember writes a directive to MEMORY.md", () => {
-    const response = callTool("brain_remember", {
+  it("brain_remember writes a directive to MEMORY.md", async () => {
+    const response = await callTool("brain_remember", {
       text: "Always use TypeScript strict mode",
       source: "claude",
       session_id: "test-session",
@@ -91,9 +94,9 @@ describe("MCP server", () => {
     expect(memoryContent).toContain("Always use TypeScript strict mode");
   });
 
-  it("brain_remember is idempotent", () => {
-    callTool("brain_remember", { text: "Never commit to main" });
-    const second = callTool("brain_remember", { text: "Never commit to main" });
+  it("brain_remember is idempotent", async () => {
+    await callTool("brain_remember", { text: "Never commit to main" });
+    const second = await callTool("brain_remember", { text: "Never commit to main" });
     const text = (second.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("already remembered");
 
@@ -102,19 +105,19 @@ describe("MCP server", () => {
     expect(occurrences.length).toBe(1);
   });
 
-  it("brain_recall returns a summary by default", () => {
-    callTool("brain_remember", { text: "Always validate input" });
-    callTool("brain_remember", { text: "Never expose internal errors" });
+  it("brain_recall returns a summary by default", async () => {
+    await callTool("brain_remember", { text: "Always validate input" });
+    await callTool("brain_remember", { text: "Never expose internal errors" });
 
-    const response = callTool("brain_recall");
+    const response = await callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("You have 2 directives, 0 events, 0 viewpoints, 0 habits.");
     expect(text).toContain("Use brain_recall with mode=all to load everything.");
     // Agent instruction moved to tool description — not in response body
   });
 
-  it("brain_recall summary includes archive preview when timeline exists", () => {
-    callTool("brain_remember", { text: "Always validate input" });
+  it("brain_recall summary includes archive preview when timeline exists", async () => {
+    await callTool("brain_remember", { text: "Always validate input" });
     const events = new EventStore(join(tmp, ".squeeze"));
     events.append([
       {
@@ -164,7 +167,7 @@ describe("MCP server", () => {
     const timeline = new TimelineIndex(join(tmp, ".squeeze"));
     timeline.rebuild();
 
-    const response = callTool("brain_recall");
+    const response = await callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Events (1 total, 2026-04-06 ~ 2026-04-06):");
     expect(text).toContain("Recent: Apr06 🐕 bought training pads for Luna");
@@ -174,8 +177,8 @@ describe("MCP server", () => {
     expect(text).toContain("Use brain_search to look up specific dates or topics.");
   });
 
-  it("brain_recall summary includes people and frameworks", () => {
-    callTool("brain_remember", { text: "Well-tested code is non-negotiable." });
+  it("brain_recall summary includes people and frameworks", async () => {
+    await callTool("brain_remember", { text: "Well-tested code is non-negotiable." });
     const relations = new RelationStore(join(tmp, ".squeeze"));
     relations.upsert({
       id: "r1",
@@ -214,7 +217,7 @@ describe("MCP server", () => {
       last_updated: "2026-04-14T00:00:00.000Z",
     });
 
-    const response = callTool("brain_recall");
+    const response = await callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("People: Alice (architecture: verify) | Tom (tech: high trust)");
     expect(text).toContain("Frameworks: Code Review (3 steps)");
@@ -222,15 +225,15 @@ describe("MCP server", () => {
     expect(text).toContain('Use brain_search --schema "code-review" for your code review framework.');
   });
 
-  it("brain_recall returns empty state when no directives exist", () => {
-    const response = callTool("brain_recall");
+  it("brain_recall returns empty state when no directives exist", async () => {
+    const response = await callTool("brain_recall");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toMatch(/no directives|MEMORY\.md does not exist/);
   });
 
-  it("brain_recall tool description contains agent behavior instructions", () => {
+  it("brain_recall tool description contains agent behavior instructions", async () => {
     // Instruction is now in the tool description, not the response
-    const listResponse = handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const listResponse = await handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
     const tools = (listResponse.result as { tools: { name: string; description: string }[] }).tools;
     const recallTool = tools.find((t) => t.name === "brain_recall");
     const searchTool = tools.find((t) => t.name === "brain_search");
@@ -241,22 +244,22 @@ describe("MCP server", () => {
     expect(searchTool!.description).toContain("who/category");
   });
 
-  it("brain_recall mode=all returns the full directive list", () => {
-    callTool("brain_remember", { text: "Always validate input" });
-    callTool("brain_remember", { text: "Never expose internal errors" });
+  it("brain_recall mode=all returns the full directive list", async () => {
+    await callTool("brain_remember", { text: "Always validate input" });
+    await callTool("brain_remember", { text: "Never expose internal errors" });
 
-    const response = callTool("brain_recall", { mode: "all" });
+    const response = await callTool("brain_recall", { mode: "all" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Always validate input");
     expect(text).toContain("Never expose internal errors");
     expect(text).toContain("Active directives (2)");
   });
 
-  it("brain_recall mode=type filters by directive type", () => {
-    callTool("brain_remember", { text: "Always use TypeScript strict mode" });
-    callTool("brain_remember", { text: "Reply in concise English" });
+  it("brain_recall mode=type filters by directive type", async () => {
+    await callTool("brain_remember", { text: "Always use TypeScript strict mode" });
+    await callTool("brain_remember", { text: "Reply in concise English" });
 
-    const response = callTool("brain_recall", {
+    const response = await callTool("brain_recall", {
       mode: "type",
       type: "CodingPreference",
     });
@@ -265,8 +268,8 @@ describe("MCP server", () => {
     expect(text).not.toContain("Reply in concise English");
   });
 
-  it("brain_recall with_evidence includes stored provenance", () => {
-    writeDirectivesToMemory(
+  it("brain_recall with_evidence includes stored provenance", async () => {
+    await writeDirectivesToMemory(
       [
         {
           index: 3,
@@ -281,19 +284,19 @@ describe("MCP server", () => {
       { source: "claude", sessionId: "sess-evidence" }
     );
 
-    const response = callTool("brain_recall", { mode: "all", with_evidence: true });
+    const response = await callTool("brain_recall", { mode: "all", with_evidence: true });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("event_time:");
     expect(text).toContain("evidence (turn 3): Always use TypeScript");
   });
 
-  it("brain_search returns empty-state guidance when archive is empty", () => {
-    const response = callTool("brain_search", { when: "last week" });
+  it("brain_search returns empty-state guidance when archive is empty", async () => {
+    const response = await callTool("brain_search", { when: "last week" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("No archived conversations yet");
   });
 
-  it("brain_search returns structured events before archive hits by exact day", () => {
+  it("brain_search returns structured events before archive hits by exact day", async () => {
     const squeezePath = join(tmp, ".squeeze");
     const events = new EventStore(squeezePath);
     events.append([
@@ -331,7 +334,7 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", { when: "2026-04-06" });
+    const response = await callTool("brain_search", { when: "2026-04-06" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Found 1 event + 1 archived message (2026-04-06):");
     expect(text).toContain("EVENTS:");
@@ -339,7 +342,7 @@ describe("MCP server", () => {
     expect(text).toContain("ARCHIVED (additional context):");
   });
 
-  it("brain_search searches events before archive by keyword", () => {
+  it("brain_search searches events before archive by keyword", async () => {
     const squeezePath = join(tmp, ".squeeze");
     const events = new EventStore(squeezePath);
     events.append([
@@ -377,14 +380,14 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", { query: "car service" });
+    const response = await callTool("brain_search", { query: "car service" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Found 1 event + 1 archived message (query: car service):");
     expect(text).toContain("EVENTS:");
     expect(text).toContain("GPS module");
   });
 
-  it("brain_search supports who lookups from event data", () => {
+  it("brain_search supports who lookups from event data", async () => {
     const events = new EventStore(join(tmp, ".squeeze"));
     events.append([
       {
@@ -407,13 +410,13 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", { who: "Tom" });
+    const response = await callTool("brain_search", { who: "Tom" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Found 1 event + 0 archived messages (who: Tom):");
     expect(text).toContain("car serviced");
   });
 
-  it("brain_search supports category lookups from event data", () => {
+  it("brain_search supports category lookups from event data", async () => {
     const events = new EventStore(join(tmp, ".squeeze"));
     events.append([
       {
@@ -436,13 +439,13 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", { category: "travel" });
+    const response = await callTool("brain_search", { category: "travel" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Found 1 event + 0 archived messages (category: travel):");
     expect(text).toContain("✈️ flew to Las Vegas");
   });
 
-  it("brain_search supports relation lookups", () => {
+  it("brain_search supports relation lookups", async () => {
     const relations = new RelationStore(join(tmp, ".squeeze"));
     relations.upsert({
       id: "r1",
@@ -455,13 +458,13 @@ describe("MCP server", () => {
       notes: "recommended Redis, worked well",
     });
 
-    const response = callTool("brain_search", { relation: "trusted" });
+    const response = await callTool("brain_search", { relation: "trusted" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Trusted people (1):");
     expect(text).toContain("Tom (tech: high)");
   });
 
-  it("brain_search supports schema lookups", () => {
+  it("brain_search supports schema lookups", async () => {
     const schemas = new SchemaStore(join(tmp, ".squeeze"));
     schemas.upsert({
       id: "s1",
@@ -479,13 +482,13 @@ describe("MCP server", () => {
       last_updated: "2026-04-14T00:00:00.000Z",
     });
 
-    const response = callTool("brain_search", { schema: "code-review" });
+    const response = await callTool("brain_search", { schema: "code-review" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Code Review Framework (code-review, confidence 0.85):");
     expect(text).toContain("1. always check error handling");
   });
 
-  it("brain_search parses relative dates and respects limits", () => {
+  it("brain_search parses relative dates and respects limits", async () => {
     const archive = new ArchiveStore(join(tmp, ".squeeze"));
     const now = new Date();
     const withinWeek = new Date(now);
@@ -517,14 +520,14 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", { when: "last week", limit: 1 });
+    const response = await callTool("brain_search", { when: "last week", limit: 1 });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Found 0 events + 2 archived messages (last week):");
     const noteMatches = text.match(/Recent deployment note/g) ?? [];
     expect(noteMatches).toHaveLength(1);
   });
 
-  it("brain_search without args returns timeline summary", () => {
+  it("brain_search without args returns timeline summary", async () => {
     const archive = new ArchiveStore(join(tmp, ".squeeze"));
     archive.append([
       {
@@ -542,12 +545,12 @@ describe("MCP server", () => {
     const timeline = new TimelineIndex(join(tmp, ".squeeze"));
     timeline.rebuild();
 
-    const response = callTool("brain_search");
+    const response = await callTool("brain_search");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("Apr11: 1 msgs");
   });
 
-  it("brain_search answers count queries before a named event", () => {
+  it("brain_search answers count queries before a named event", async () => {
     const events = new EventStore(join(tmp, ".squeeze"));
     events.append([
       {
@@ -606,7 +609,7 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", {
+    const response = await callTool("brain_search", {
       query: "how many charity events before Run for the Cure",
     });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
@@ -614,7 +617,7 @@ describe("MCP server", () => {
     expect(text).toContain("category=events");
   });
 
-  it("brain_search answers count queries in a date range", () => {
+  it("brain_search answers count queries in a date range", async () => {
     const events = new EventStore(join(tmp, ".squeeze"));
     events.append([
       {
@@ -673,7 +676,7 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_search", {
+    const response = await callTool("brain_search", {
       query: "how many laptop from 2026-03-01 to 2026-04-01",
     });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
@@ -681,9 +684,9 @@ describe("MCP server", () => {
     expect(text).toContain('what~"laptop"');
   });
 
-  it("brain_candidates supports full add → list → approve flow", () => {
+  it("brain_candidates supports full add → list → approve flow", async () => {
     // Add
-    const add = callTool("brain_candidates", {
+    const add = await callTool("brain_candidates", {
       action: "add",
       text: "prefer tabs over spaces",
     });
@@ -691,7 +694,7 @@ describe("MCP server", () => {
     expect(addText).toContain("added candidate");
 
     // List
-    const list = callTool("brain_candidates", { action: "list" });
+    const list = await callTool("brain_candidates", { action: "list" });
     const listText = (list.result as { content: { text: string }[] }).content[0].text;
     expect(listText).toContain("prefer tabs over spaces");
 
@@ -701,7 +704,7 @@ describe("MCP server", () => {
     const id = idMatch![1];
 
     // Approve
-    const approve = callTool("brain_candidates", {
+    const approve = await callTool("brain_candidates", {
       action: "approve",
       id,
     });
@@ -712,14 +715,14 @@ describe("MCP server", () => {
     expect(memoryContent).toContain("prefer tabs over spaces");
   });
 
-  it("brain_candidates approve with final_text uses edited version", () => {
-    callTool("brain_candidates", { action: "add", text: "use TS" });
-    const list = callTool("brain_candidates", { action: "list" });
+  it("brain_candidates approve with final_text uses edited version", async () => {
+    await callTool("brain_candidates", { action: "add", text: "use TS" });
+    const list = await callTool("brain_candidates", { action: "list" });
     const id = ((list.result as { content: { text: string }[] }).content[0].text.match(
       /([a-f0-9]{8})/
     )! )[1];
 
-    callTool("brain_candidates", {
+    await callTool("brain_candidates", {
       action: "approve",
       id,
       final_text: "Always use TypeScript",
@@ -730,21 +733,21 @@ describe("MCP server", () => {
     expect(memoryContent).not.toContain("- [unknown] use TS");
   });
 
-  it("brain_candidates reject never promotes the candidate", () => {
-    callTool("brain_candidates", { action: "add", text: "noisy correction" });
-    const list = callTool("brain_candidates", { action: "list" });
+  it("brain_candidates reject never promotes the candidate", async () => {
+    await callTool("brain_candidates", { action: "add", text: "noisy correction" });
+    const list = await callTool("brain_candidates", { action: "list" });
     const id = ((list.result as { content: { text: string }[] }).content[0].text.match(
       /([a-f0-9]{8})/
     )!)[1];
 
-    callTool("brain_candidates", { action: "reject", id });
+    await callTool("brain_candidates", { action: "reject", id });
 
     expect(existsSync(join(tmp, "MEMORY.md"))).toBe(false);
   });
 
-  it("brain_retire moves a directive to the archive", () => {
-    callTool("brain_remember", { text: "Always use Python 3.11" });
-    const retire = callTool("brain_retire", { match: "Python 3.11" });
+  it("brain_retire moves a directive to the archive", async () => {
+    await callTool("brain_remember", { text: "Always use Python 3.11" });
+    const retire = await callTool("brain_retire", { match: "Python 3.11" });
     const text = (retire.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("retired 1");
 
@@ -754,9 +757,47 @@ describe("MCP server", () => {
     expect(memoryContent.slice(0, archiveIdx)).not.toContain("Always use Python 3.11");
   });
 
-  it("brain_status returns counts and health fields", () => {
-    callTool("brain_remember", { text: "test directive" });
-    callTool("brain_candidates", { action: "add", text: "pending candidate" });
+  it("brain_consolidate runs offline growth and brain_growth reports it", async () => {
+    writeFileSync(
+      join(tmp, "package.json"),
+      JSON.stringify({
+        type: "module",
+        devDependencies: { vitest: "^3.0.0" },
+      })
+    );
+    await callTool("brain_remember", { text: "Always review code for error handling first" });
+
+    const consolidate = await callTool("brain_consolidate", { stale_days: 0 });
+    const consolidateText = (consolidate.result as { content: { text: string }[] }).content[0].text;
+    expect(consolidateText).toContain("oh-my-brain consolidate");
+    expect(consolidateText).toContain("Reflection loop:");
+
+    const growth = await callTool("brain_growth");
+    const growthText = (growth.result as { content: { text: string }[] }).content[0].text;
+    expect(growthText).toContain("oh-my-brain growth");
+    expect(growthText).toContain("pending_reflection_proposals:");
+    expect(growthText).toContain("growth_journal_entries:");
+
+    const listed = await callTool("brain_reflect", { action: "list" });
+    const listedText = (listed.result as { content: { text: string }[] }).content[0].text;
+    expect(listedText).toContain("oh-my-brain reflect");
+
+    const proposalId = readFileSync(join(tmp, ".squeeze", "reflection-proposals.json"), "utf8")
+      .match(/"id": "([^"]+)"/)?.[1];
+    expect(proposalId).toBeTruthy();
+
+    const approved = await callTool("brain_reflect", { action: "approve", id: proposalId });
+    const approvedText = (approved.result as { content: { text: string }[] }).content[0].text;
+    expect(approvedText).toContain("approved");
+
+    const dismissed = await callTool("brain_reflect", { action: "dismiss", id: proposalId });
+    const dismissedText = (dismissed.result as { content: { text: string }[] }).content[0].text;
+    expect(dismissedText).toContain("not pending");
+  });
+
+  it("brain_status returns counts and health fields", async () => {
+    await callTool("brain_remember", { text: "test directive" });
+    await callTool("brain_candidates", { action: "add", text: "pending candidate" });
     const events = new EventStore(join(tmp, ".squeeze"));
     events.append([
       {
@@ -854,7 +895,7 @@ describe("MCP server", () => {
       last_updated: "2026-04-14T00:00:00.000Z",
     });
 
-    const status = callTool("brain_status");
+    const status = await callTool("brain_status");
     const text = (status.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("memory_exists: true");
     expect(text).toContain("candidates_pending: 1");
@@ -873,32 +914,34 @@ describe("MCP server", () => {
     expect(text).toContain("relations_total: 1");
     expect(text).toContain("relations_high_trust: 1");
     expect(text).toContain("schemas_total: 1");
+    expect(text).toContain("reflection_proposals_pending:");
+    expect(text).toContain("growth_journal_entries:");
     expect(text).toContain("token_budget.total_directives: 1");
   });
 
-  it("brain_status reports needs_review when pending candidates exceed threshold", () => {
+  it("brain_status reports needs_review when pending candidates exceed threshold", async () => {
     for (let i = 0; i < 6; i += 1) {
-      callTool("brain_candidates", { action: "add", text: `pending candidate ${i}` });
+      await callTool("brain_candidates", { action: "add", text: `pending candidate ${i}` });
     }
 
-    const status = callTool("brain_status");
+    const status = await callTool("brain_status");
     const text = (status.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("health: needs_review");
   });
 
-  it("brain_status reports bloated when active directives exceed 30", () => {
+  it("brain_status reports bloated when active directives exceed 30", async () => {
     for (let i = 0; i < 31; i += 1) {
-      callTool("brain_remember", { text: `Always keep rule ${i}` });
+      await callTool("brain_remember", { text: `Always keep rule ${i}` });
     }
 
-    const status = callTool("brain_status");
+    const status = await callTool("brain_status");
     const text = (status.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("health: bloated");
   });
 
-  it("brain_recall shows conflict warnings from approved contradicts links", () => {
-    callTool("brain_remember", { text: "Always use tabs" });
-    callTool("brain_remember", { text: "Follow project conventions" });
+  it("brain_recall shows conflict warnings from approved contradicts links", async () => {
+    await callTool("brain_remember", { text: "Always use tabs" });
+    await callTool("brain_remember", { text: "Follow project conventions" });
     saveLinks(tmp, [
       {
         id: "link-1",
@@ -910,28 +953,28 @@ describe("MCP server", () => {
       },
     ]);
 
-    const response = callTool("brain_recall", { mode: "all" });
+    const response = await callTool("brain_recall", { mode: "all" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain('⚠ CONFLICT: "Always use tabs" may contradict "Follow project conventions"');
   });
 
-  it("brain_quiz returns an error until enough directives exist", () => {
-    callTool("brain_remember", { text: "Always use TypeScript" });
-    callTool("brain_remember", { text: "Never force-push to main" });
+  it("brain_quiz returns an error until enough directives exist", async () => {
+    await callTool("brain_remember", { text: "Always use TypeScript" });
+    await callTool("brain_remember", { text: "Never force-push to main" });
 
-    const response = callTool("brain_quiz", { category: "random" });
+    const response = await callTool("brain_quiz", { category: "random" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain(
       "Not enough directives to generate meaningful scenarios. Use oh-my-brain for a few sessions first."
     );
   });
 
-  it("brain_quiz returns a scenario payload when enough directives exist", () => {
-    callTool("brain_remember", { text: "Always use TypeScript strict mode" });
-    callTool("brain_remember", { text: "Never force-push to main" });
-    callTool("brain_remember", { text: "Always review before merging" });
+  it("brain_quiz returns a scenario payload when enough directives exist", async () => {
+    await callTool("brain_remember", { text: "Always use TypeScript strict mode" });
+    await callTool("brain_remember", { text: "Never force-push to main" });
+    await callTool("brain_remember", { text: "Always review before merging" });
 
-    const response = callTool("brain_quiz", { category: "random" });
+    const response = await callTool("brain_quiz", { category: "random" });
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     const payload = JSON.parse(text) as {
       scenario: string;
@@ -947,8 +990,8 @@ describe("MCP server", () => {
     expect(payload.relevant_directives.length).toBeGreaterThan(0);
   });
 
-  it("unknown method returns JSON-RPC error", () => {
-    const response = handleRequest({
+  it("unknown method returns JSON-RPC error", async () => {
+    const response = await handleRequest({
       jsonrpc: "2.0",
       id: 99,
       method: "does/not/exist",
@@ -957,14 +1000,14 @@ describe("MCP server", () => {
     expect(response.error!.code).toBe(-32601);
   });
 
-  it("unknown tool name returns error text", () => {
-    const response = callTool("brain_fake_tool");
+  it("unknown tool name returns error text", async () => {
+    const response = await callTool("brain_fake_tool");
     const text = (response.result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain("unknown tool");
   });
 
-  it("notifications/initialized returns empty result", () => {
-    const response = handleRequest({
+  it("notifications/initialized returns empty result", async () => {
+    const response = await handleRequest({
       jsonrpc: "2.0",
       id: null,
       method: "notifications/initialized",

@@ -40,8 +40,8 @@ export class Compactor {
    * Groups by batchTurns, writes one dag_node per batch.
    * Idempotent — already-compacted messages are skipped.
    */
-  run(currentTurn: number): void {
-    const compactable = this.messages.getCompactable(currentTurn, this.config.freshTailTurns);
+  async run(currentTurn: number): Promise<void> {
+    const compactable = await this.messages.getCompactable(currentTurn, this.config.freshTailTurns);
     if (compactable.length === 0) return;
 
     const batches = groupByTurns(compactable, this.config.batchTurns);
@@ -82,7 +82,7 @@ export class Compactor {
         this.config.archiveStore.append(archiveEntries);
       }
 
-      const nodeId = this.dag.insert({
+      const nodeId = await this.dag.insert({
         parentId: null,
         abstract: summary.abstract,
         overview: summary.overview,
@@ -93,7 +93,7 @@ export class Compactor {
         level: maxLevel,
       });
 
-      this.messages.markCompacted(sourceIds, nodeId);
+      await this.messages.markCompacted(sourceIds, nodeId);
     }
   }
 }

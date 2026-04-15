@@ -407,3 +407,31 @@ oh-my-brain: 認知模型 — 像你一樣理解世界
 ```
 
 **不是記得多少，是理解多深。**
+
+---
+
+## 從認知記憶到 Personal Intelligence Engine
+
+這份文件前半段回答的是：
+
+> **應該記什麼，才能更像人的認知結構？**
+
+但真正的產品問題其實還要再往前一步：
+
+> **知道 user 怎麼決策、怎麼成長，最後要怎麼讓 agent 下次做得更好？**
+
+這一層已經延伸成獨立文件：
+
+- [`personal-intelligence-engine.md`](personal-intelligence-engine.md)
+
+那份文件補上了：
+
+- 為什麼 oh-my-brain 不該只停在 memory layer
+- 為什麼系統要分成 Brain Mode / Agent Mode
+- Hermes Agent vs oh-my-brain 的更深層分水嶺
+- 真正要形成的五個閉環：user modeling、decision alignment、decision-to-action、outcome、skill
+- 接下來的具體產品 / 工程 TODO，不只停在定位討論
+
+如果這份文件是在回答「記憶與認知結構」，那下一份就是回答：
+
+> **怎麼把認知模型接成真正會成長、會做事的 personal intelligence engine。**

@@ -27,8 +27,8 @@ function parseArgValue(args: string[], flag: string): string | undefined {
   return args[index + 1];
 }
 
-function runOnce(args: string[]) {
-  const result = syncCodexSessions({
+async function runOnce(args: string[]): Promise<void> {
+  const result = await syncCodexSessions({
     sessionsRoot: parseArgValue(args, "--sessions-root") ?? defaultCodexSessionsRoot(),
     statePath: parseArgValue(args, "--state-path") ?? defaultCodexStatePath(),
     logPath: parseArgValue(args, "--log-path") ?? defaultCodexLogPath(),
@@ -55,14 +55,14 @@ async function main() {
   }
 
   if (!args.includes("--watch")) {
-    runOnce(args);
+    await runOnce(args);
     return;
   }
 
   const intervalMs = Number(parseArgValue(args, "--interval-ms") ?? 15000);
   process.stderr.write(`[brain-codex] watch mode started (interval ${intervalMs}ms)\n`);
-  runOnce(args);
-  setInterval(() => runOnce(args), intervalMs);
+  await runOnce(args);
+  setInterval(() => { void runOnce(args); }, intervalMs);
 }
 
 // Only auto-execute when run directly as a binary. Without this guard,

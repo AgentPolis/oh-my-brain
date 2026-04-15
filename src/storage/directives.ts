@@ -2,138 +2,129 @@
  * L3 Directive store + L2 Preference store with conflict resolution.
  */
 
-import BetterSqlite3 from "better-sqlite3";
-import type Database from "better-sqlite3";
 import { mkdirSync } from "fs";
 import { join } from "path";
 import type { DirectiveRecord, PreferenceRecord } from "../types.js";
-import { initSchema } from "./schema.js";
+import type { BrainDB } from "./db.js";
+import { pgliteFactory } from "./db.js";
+import { initPgSchema } from "./pg-schema.js";
 
 export class DirectiveStore {
-  private db: Database.Database;
+  private db: BrainDB;
 
-  constructor(db: Database.Database) {
+  constructor(db: BrainDB) {
     this.db = db;
   }
 
   // ── L3 Directives ──────────────────────────────────────────────
 
-  addDirective(
+  async addDirective(
     key: string,
     value: string,
     sourceMsgId: number | null,
     confirmedByUser = false,
     evidence?: { text?: string; turn?: number },
     eventTime?: string
-  ): number {
-    // Atomic insert-then-supersede in one transaction.
-    const txn = this.db.transaction(() => {
-      const result = this.db
-        .prepare(
-          `INSERT INTO directives (
-             key, value, source_msg_id, confirmed_by_user, evidence_text, evidence_turn, event_time
-           )
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
+  ): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx.query<{ id: number }>(
+        `INSERT INTO directives (
+           key, value, source_msg_id, confirmed_by_user, evidence_text, evidence_turn, event_time
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id`,
+        [
           key,
           value,
           sourceMsgId,
-          confirmedByUser ? 1 : 0,
+          confirmedByUser,
           evidence?.text ?? null,
           evidence?.turn ?? null,
-          eventTime ?? new Date().toISOString()
-        );
+          eventTime ?? new Date().toISOString(),
+        ],
+      );
 
-      const newId = Number(result.lastInsertRowid);
-      this.db
-        .prepare(
-          `UPDATE directives
-           SET superseded_by = ?, superseded_at = datetime('now')
-           WHERE key = ? AND superseded_by IS NULL AND id != ?`
-        )
-        .run(newId, key, newId);
+      const newId = rows[0].id;
+      await tx.exec(
+        `UPDATE directives
+         SET superseded_by = $1, superseded_at = NOW()
+         WHERE key = $2 AND superseded_by IS NULL AND id != $3`,
+        [newId, key, newId],
+      );
 
       return newId;
     });
-
-    return txn();
   }
 
-  getActiveDirectives(): DirectiveRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM directives WHERE superseded_by IS NULL ORDER BY created_at`
-      )
-      .all() as RawDirectiveRow[];
+  async getActiveDirectives(): Promise<DirectiveRecord[]> {
+    const rows = await this.db.query<RawDirectiveRow>(
+      `SELECT * FROM directives WHERE superseded_by IS NULL ORDER BY created_at`,
+    );
     return rows.map(toDirectiveRecord);
   }
 
-  getDirectiveHistory(key: string): DirectiveRecord[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM directives WHERE key = ? ORDER BY created_at`)
-      .all(key) as RawDirectiveRow[];
+  async getDirectiveHistory(key: string): Promise<DirectiveRecord[]> {
+    const rows = await this.db.query<RawDirectiveRow>(
+      `SELECT * FROM directives WHERE key = $1 ORDER BY created_at`,
+      [key],
+    );
     return rows.map(toDirectiveRecord);
   }
 
-  removeDirective(id: number): boolean {
-    const result = this.db
-      .prepare(`DELETE FROM directives WHERE id = ?`)
-      .run(id);
-    return result.changes > 0;
+  async removeDirective(id: number): Promise<boolean> {
+    const rows = await this.db.query<{ id: number }>(
+      `DELETE FROM directives WHERE id = $1 RETURNING id`,
+      [id],
+    );
+    return rows.length > 0;
   }
 
   // ── L2 Preferences ────────────────────────────────────────────
 
-  addPreference(
+  async addPreference(
     key: string,
     value: string,
     confidence: number,
     sourceMsgId: number,
     eventTime?: string
-  ): number {
-    const txn = this.db.transaction(() => {
-      const result = this.db
-        .prepare(
-          `INSERT INTO preferences (key, value, confidence, source_msg_id, event_time)
-           VALUES (?, ?, ?, ?, ?)`
-        )
-        .run(key, value, confidence, sourceMsgId, eventTime ?? new Date().toISOString());
+  ): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx.query<{ id: number }>(
+        `INSERT INTO preferences (key, value, confidence, source_msg_id, event_time)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
+        [key, value, confidence, sourceMsgId, eventTime ?? new Date().toISOString()],
+      );
 
-      const newId = Number(result.lastInsertRowid);
-      this.db
-        .prepare(
-          `UPDATE preferences
-           SET superseded_by = ?, superseded_at = datetime('now')
-           WHERE key = ? AND superseded_by IS NULL AND id != ?`
-        )
-        .run(newId, key, newId);
+      const newId = rows[0].id;
+      await tx.exec(
+        `UPDATE preferences
+         SET superseded_by = $1, superseded_at = NOW()
+         WHERE key = $2 AND superseded_by IS NULL AND id != $3`,
+        [newId, key, newId],
+      );
 
       return newId;
     });
-
-    return txn();
   }
 
-  getActivePreferences(minConfidence = 0): PreferenceRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM preferences
-         WHERE superseded_by IS NULL AND confidence >= ?
-         ORDER BY confidence DESC, created_at`
-      )
-      .all(minConfidence) as RawPreferenceRow[];
+  async getActivePreferences(minConfidence = 0): Promise<PreferenceRecord[]> {
+    const rows = await this.db.query<RawPreferenceRow>(
+      `SELECT * FROM preferences
+       WHERE superseded_by IS NULL AND confidence >= $1
+       ORDER BY confidence DESC, created_at`,
+      [minConfidence],
+    );
     return rows.map(toPreferenceRecord);
   }
 
   // ── Backward-compatibility helper ───────────────────────────────
 
-  fixupSuperseded(table: "directives" | "preferences", newId: number, key: string): void {
-    this.db
-      .prepare(
-        `UPDATE ${table} SET superseded_by = ? WHERE superseded_by = -1 AND key = ?`
-      )
-      .run(newId, key);
+  async fixupSuperseded(table: "directives" | "preferences", newId: number, key: string): Promise<void> {
+    await this.db.exec(
+      `UPDATE ${table} SET superseded_by = $1 WHERE superseded_by = -1 AND key = $2`,
+      [newId, key],
+    );
   }
 }
 
@@ -144,14 +135,14 @@ interface RawDirectiveRow {
   key: string;
   value: string;
   source_msg_id: number | null;
-  created_at: string;
-  event_time: string | null;
-  confirmed_by_user: number;
+  created_at: string | Date;
+  event_time: string | Date | null;
+  confirmed_by_user: boolean;
   evidence_text: string | null;
   evidence_turn: number | null;
-  last_referenced_at: string | null;
+  last_referenced_at: string | Date | null;
   superseded_by: number | null;
-  superseded_at: string | null;
+  superseded_at: string | Date | null;
 }
 
 interface RawPreferenceRow {
@@ -160,31 +151,39 @@ interface RawPreferenceRow {
   value: string;
   confidence: number;
   source_msg_id: number;
-  created_at: string;
-  event_time: string | null;
+  created_at: string | Date;
+  event_time: string | Date | null;
   superseded_by: number | null;
-  superseded_at: string | null;
+  superseded_at: string | Date | null;
+}
+
+/** Convert a PGLite TIMESTAMPTZ value (Date object or string) to ISO string. */
+function tsToString(val: string | Date | null | undefined): string | null {
+  if (val == null) return null;
+  if (val instanceof Date) return val.toISOString();
+  return String(val);
 }
 
 function toDirectiveRecord(row: RawDirectiveRow): DirectiveRecord {
+  const createdAt = tsToString(row.created_at) ?? "";
   return {
     id: row.id,
     key: row.key,
     value: row.value,
     sourceMsgId: row.source_msg_id,
-    createdAt: row.created_at,
-    eventTime: row.event_time ?? row.created_at,
-    confirmedByUser: row.confirmed_by_user === 1,
+    createdAt,
+    eventTime: tsToString(row.event_time) ?? createdAt,
+    confirmedByUser: Boolean(row.confirmed_by_user),
     evidenceText: row.evidence_text,
     evidenceTurn: row.evidence_turn,
-    lastReferencedAt: row.last_referenced_at,
+    lastReferencedAt: tsToString(row.last_referenced_at),
     supersededBy: row.superseded_by,
-    supersededAt: row.superseded_at,
+    supersededAt: tsToString(row.superseded_at),
   };
 }
 
-function projectDbPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "brain.db");
+function projectPgPath(projectRoot: string): string {
+  return join(projectRoot, ".squeeze", "brain.pg");
 }
 
 function extractDirectiveKey(content: string): string {
@@ -205,7 +204,7 @@ function extractDirectiveKey(content: string): string {
     .replace(/^_|_$/g, "");
 }
 
-export function persistDirectives(
+export async function persistDirectives(
   projectRoot: string,
   records: Array<{
     directiveText: string;
@@ -213,31 +212,33 @@ export function persistDirectives(
     evidenceTurn?: number;
     eventTime?: string;
   }>
-): void {
+): Promise<void> {
   if (records.length === 0) return;
 
   mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
-  const db = new BetterSqlite3(projectDbPath(projectRoot));
+  const db = await pgliteFactory.create(projectPgPath(projectRoot));
   try {
-    initSchema(db);
+    await initPgSchema(db);
     const store = new DirectiveStore(db);
-    const insertMessage = db.prepare(
-      `INSERT INTO messages (role, content, level, content_type, confidence, turn_index)
-       VALUES ('user', ?, 3, 'conversation', 1.0, ?)`
-    );
-    const existingStmt = db.prepare(
-      `SELECT 1 FROM directives WHERE superseded_by IS NULL AND value = ?`
-    );
 
     for (const record of records) {
-      const exists = existingStmt.get(record.directiveText) as { 1: number } | undefined;
-      if (exists) continue;
+      const existing = await db.query<{ n: number }>(
+        `SELECT 1 as n FROM directives WHERE superseded_by IS NULL AND value = $1`,
+        [record.directiveText],
+      );
+      if (existing.length > 0) continue;
 
-      const messageId =
-        typeof record.evidenceText === "string"
-          ? Number(insertMessage.run(record.evidenceText, record.evidenceTurn ?? 0).lastInsertRowid)
-          : null;
-      store.addDirective(
+      let messageId: number | null = null;
+      if (typeof record.evidenceText === "string") {
+        const msgRows = await db.query<{ id: number }>(
+          `INSERT INTO messages (role, content, level, content_type, confidence, turn_index)
+           VALUES ('user', $1, 3, 'conversation', 1.0, $2)
+           RETURNING id`,
+          [record.evidenceText, record.evidenceTurn ?? 0],
+        );
+        messageId = msgRows[0].id;
+      }
+      await store.addDirective(
         extractDirectiveKey(record.directiveText),
         record.directiveText,
         messageId,
@@ -250,32 +251,28 @@ export function persistDirectives(
       );
     }
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
-export function loadDirectiveEvidence(
+export async function loadDirectiveEvidence(
   projectRoot: string
-): Map<string, { evidenceText: string | null; evidenceTurn: number | null }> {
-  const dbFile = projectDbPath(projectRoot);
-  if (!dbFile) {
-    return new Map();
-  }
+): Promise<Map<string, { evidenceText: string | null; evidenceTurn: number | null }>> {
+  const dataDir = projectPgPath(projectRoot);
 
   try {
-    const db = new BetterSqlite3(dbFile, { readonly: true });
+    const db = await pgliteFactory.create(dataDir);
     try {
-      const rows = db
-        .prepare(
-          `SELECT value, evidence_text, evidence_turn
-           FROM directives
-           WHERE superseded_by IS NULL`
-        )
-        .all() as Array<{
+      await initPgSchema(db);
+      const rows = await db.query<{
         value: string;
         evidence_text: string | null;
         evidence_turn: number | null;
-      }>;
+      }>(
+        `SELECT value, evidence_text, evidence_turn
+         FROM directives
+         WHERE superseded_by IS NULL`,
+      );
       return new Map(
         rows.map((row) => [
           row.value,
@@ -286,50 +283,50 @@ export function loadDirectiveEvidence(
         ])
       );
     } finally {
-      db.close();
+      await db.close();
     }
   } catch {
     return new Map();
   }
 }
 
-export function loadDirectiveMetadata(projectRoot: string): DirectiveRecord[] {
-  const dbFile = projectDbPath(projectRoot);
-  if (!dbFile) return [];
+export async function loadDirectiveMetadata(projectRoot: string): Promise<DirectiveRecord[]> {
+  const dataDir = projectPgPath(projectRoot);
 
   try {
-    const db = new BetterSqlite3(dbFile, { readonly: true });
+    const db = await pgliteFactory.create(dataDir);
     try {
-      return new DirectiveStore(db).getActiveDirectives();
+      await initPgSchema(db);
+      return await new DirectiveStore(db).getActiveDirectives();
     } finally {
-      db.close();
+      await db.close();
     }
   } catch {
     return [];
   }
 }
 
-export function markDirectivesReferenced(
+export async function markDirectivesReferenced(
   projectRoot: string,
   directiveTexts: string[]
-): void {
+): Promise<void> {
   if (directiveTexts.length === 0) return;
-  const dbFile = projectDbPath(projectRoot);
+  const dataDir = projectPgPath(projectRoot);
 
   try {
-    const db = new BetterSqlite3(dbFile);
+    const db = await pgliteFactory.create(dataDir);
     try {
-      initSchema(db);
-      const stmt = db.prepare(
-        `UPDATE directives
-         SET last_referenced_at = datetime('now')
-         WHERE superseded_by IS NULL AND value = ?`
-      );
+      await initPgSchema(db);
       for (const directiveText of directiveTexts) {
-        stmt.run(directiveText);
+        await db.exec(
+          `UPDATE directives
+           SET last_referenced_at = NOW()
+           WHERE superseded_by IS NULL AND value = $1`,
+          [directiveText],
+        );
       }
     } finally {
-      db.close();
+      await db.close();
     }
   } catch {
     // Best-effort metadata update only.
@@ -337,15 +334,16 @@ export function markDirectivesReferenced(
 }
 
 function toPreferenceRecord(row: RawPreferenceRow): PreferenceRecord {
+  const createdAt = tsToString(row.created_at) ?? "";
   return {
     id: row.id,
     key: row.key,
     value: row.value,
     confidence: row.confidence,
     sourceMsgId: row.source_msg_id,
-    createdAt: row.created_at,
-    eventTime: row.event_time ?? row.created_at,
+    createdAt,
+    eventTime: tsToString(row.event_time) ?? createdAt,
     supersededBy: row.superseded_by,
-    supersededAt: row.superseded_at,
+    supersededAt: tsToString(row.superseded_at),
   };
 }

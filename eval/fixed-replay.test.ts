@@ -40,13 +40,11 @@ async function assembleSession(messages: Message[]) {
 
   const baselineTokens = messages.reduce((sum, msg) => sum + estimateTokens(msg.content), 0);
   const assembled = await engine.assemble(budget(baselineTokens));
-  const directives = engine.getDirectiveStore().getActiveDirectives().map((d) => d.value);
-  const counts = engine.getMessageStore().countByLevel();
-  engine.close();
+  const directives = (await engine.getDirectiveStore().getActiveDirectives()).map((d) => d.value);
+  const counts = await engine.getMessageStore().countByLevel();
+  await engine.close();
 
-  for (const suffix of ["", "-wal", "-shm"]) {
-    rmSync(dbPath + suffix, { force: true });
-  }
+  rmSync(dbPath, { recursive: true, force: true });
 
   return { baselineTokens, assembled, directives, counts };
 }
@@ -57,12 +55,12 @@ describe("Fixed replay evaluation", () => {
     delete process.env.SQUEEZE_CLAUDE_PROJECTS_DIR;
   });
 
-  it("Scenario 1: Claude hook replay produces a real MEMORY artifact and compresses stale notes", () => {
+  it("Scenario 1: Claude hook replay produces a real MEMORY artifact and compresses stale notes", async () => {
     const entries = fixtureEntries("claude-hook-session-demo.jsonl");
     const processed = processMessages(entries);
     const tmpDir = mkdtempSync(join(tmpdir(), "squeeze-hook-replay-"));
     const memoryPath = join(tmpDir, "MEMORY.md");
-    const directivesWritten = writeDirectivesToMemory(processed, memoryPath);
+    const directivesWritten = await writeDirectivesToMemory(processed, memoryPath);
 
     const totalMsgs = processed.length;
     const compressedCount = processed.filter((m) => m.wasCompressed).length;
@@ -105,12 +103,12 @@ describe("Fixed replay evaluation", () => {
     expect(result.directives).toContain("Always validate input before processing.");
   });
 
-  it("Scenario 3: memory precision replay writes user directives but not assistant phrasing", () => {
+  it("Scenario 3: memory precision replay writes user directives but not assistant phrasing", async () => {
     const entries = fixtureEntries("memory-precision-demo.jsonl");
     const processed = processMessages(entries);
     const tmpDir = mkdtempSync(join(tmpdir(), "squeeze-memory-precision-"));
     const memoryPath = join(tmpDir, "MEMORY.md");
-    writeDirectivesToMemory(processed, memoryPath);
+    await writeDirectivesToMemory(processed, memoryPath);
     const memory = readFileSync(memoryPath, "utf8");
 
     console.log("\nFixed Replay 3 — Memory precision replay");

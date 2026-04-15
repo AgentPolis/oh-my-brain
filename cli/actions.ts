@@ -295,10 +295,10 @@ export interface RememberInput {
   finalText?: string;
 }
 
-export function applyRememberDirective(
+export async function applyRememberDirective(
   ctx: ActionContext,
   input: RememberInput
-): RememberDirectiveAction {
+): Promise<RememberDirectiveAction> {
   const finalText = (input.finalText ?? input.text).trim();
   const memoryPathSnapshot = snapshotMemory(ctx.projectRoot);
 
@@ -329,7 +329,7 @@ export function applyRememberDirective(
   };
   appendActionToLog(ctx.projectRoot, action);
   if (written > 0) {
-    persistDirectives(ctx.projectRoot, [{ directiveText: finalText }]);
+    await persistDirectives(ctx.projectRoot, [{ directiveText: finalText }]);
     runOntologyScan(ctx.projectRoot);
   }
   return action;
@@ -340,10 +340,10 @@ export interface PromoteInput {
   finalText?: string;
 }
 
-export function applyPromoteCandidate(
+export async function applyPromoteCandidate(
   ctx: ActionContext,
   input: PromoteInput
-): PromoteCandidateAction | null {
+): Promise<PromoteCandidateAction | null> {
   const store = loadCandidateStore(ctx.projectRoot);
   const record = store.candidates[input.candidateId];
   if (!record || record.status !== "pending") return null;
@@ -386,7 +386,7 @@ export function applyPromoteCandidate(
   };
   appendActionToLog(ctx.projectRoot, action);
   if (written > 0) {
-    persistDirectives(ctx.projectRoot, [{ directiveText: result.finalText }]);
+    await persistDirectives(ctx.projectRoot, [{ directiveText: result.finalText }]);
     runOntologyScan(ctx.projectRoot);
   }
   return action;

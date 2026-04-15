@@ -258,7 +258,7 @@ function latestSessionFiles(root: string, limit = 100): string[] {
     .map((file) => file.path);
 }
 
-export function syncCodexSessions(options: CodexSyncOptions = {}): CodexSyncResult {
+export async function syncCodexSessions(options: CodexSyncOptions = {}): Promise<CodexSyncResult> {
   const sessionsRoot = options.sessionsRoot ?? defaultCodexSessionsRoot();
   const statePath = options.statePath ?? defaultCodexStatePath();
   const logPath = options.logPath ?? defaultCodexLogPath();
@@ -285,7 +285,7 @@ export function syncCodexSessions(options: CodexSyncOptions = {}): CodexSyncResu
 
     const processed = processMessages(parsed.entries as never[]);
     const memoryPath = join(parsed.cwd, "MEMORY.md");
-    const directivesWritten = writeDirectivesToMemory(processed, memoryPath, {
+    const directivesWritten = await writeDirectivesToMemory(processed, memoryPath, {
       source: "codex",
       sessionId: parsed.sessionId,
     });
