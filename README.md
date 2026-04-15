@@ -87,7 +87,10 @@ Four importance levels, plus the thing nobody else does:
   but smarter: auto-save when confident, ask when unsure.
 - **Decision Replay** — Evaluates whether your agent makes the same
   decisions you would. Not retrieval accuracy, decision accuracy.
-  Run `oh-my-brain eval` to benchmark.
+  Run `oh-my-brain eval` to benchmark. Results checkpoint after each
+  scenario, so you can rerun the same command to resume a long Codex run.
+  For large suites, use `npm run benchmark:decision-replay -- --scenarios <file> --tool codex`
+  to emit both a resumable checkpoint and a JSON report.
 - **~100 token startup** — Lazy loading. `brain_recall` returns a
   category summary by default, loads full directives on demand.
   Your brain costs less context than a system prompt.
@@ -127,7 +130,7 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
 | Trust model              | Black box                   | Plain text `MEMORY.md` you can inspect, edit, commit |
-| vs MemPalace             | 170 token startup, spatial metaphor, claims 96.6% LongMemEval (disputed) | ~100 token startup, importance classification, Decision Replay benchmark, zero disputed claims |
+| vs MemPalace             | 170 token startup, spatial metaphor, 96.6% LongMemEval (uncompressed mode) | ~100 token startup, importance classification, Decision Replay benchmark |
 | Origin                   | Built from spec             | Built from real-use frustration                    |
 
 See [`docs/why-personal-world-model.md`](docs/why-personal-world-model.md)
@@ -323,7 +326,7 @@ Temporal-reasoning subset, 50 questions. Full 500-question run coming.
 | Raw dump (no oh-my-brain) | 86% (43/50) | Full transcript, no compression |
 | **oh-my-brain v0.7.0** | **92%** (46/50) | Renamed repo, metadata-clean rerun on oracle temporal subset |
 | Hindsight | 91.4% | Knowledge graph, full dataset |
-| MemPalace (uncompressed, disputed) | 96.6% | See their paper for methodology |
+| MemPalace (uncompressed mode) | 96.6% | Different eval methodology, see their paper |
 
 **Error analysis (remaining misses):** mostly incomplete event coverage
 and event-to-event duration reasoning. In other words: not "the brain
