@@ -1049,6 +1049,16 @@ export async function main() {
   }
 
   const cwd = process.cwd();
+
+  // First-run hint (non-blocking)
+  try {
+    const { getCompressHookHint } = await import("./onboarding.js");
+    const hint = getCompressHookHint(cwd);
+    if (hint) process.stderr.write(`${hint}\n`);
+  } catch {
+    // onboarding module missing or broken — never block compress
+  }
+
   const sessionPath = findSessionJsonl(cwd);
   const maxArchiveMb = parseMaxArchiveMbArg(args);
 

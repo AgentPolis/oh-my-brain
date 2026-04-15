@@ -6,6 +6,13 @@ import { applyRememberDirective } from "./actions.js";
 import { detectImportFiles, scanImportFile } from "./import.js";
 import { ingestCandidates, loadCandidateStore, saveCandidateStore } from "./candidates.js";
 import { parseExistingDirectives } from "./compress-core.js";
+import {
+  detectEnvironment,
+  formatOnboardingMessage,
+  getOnboardingOptions,
+  isOnboarded,
+  saveOnboardingConfig,
+} from "./onboarding.js";
 
 interface InitSummary {
   directives: string[];
@@ -118,6 +125,53 @@ async function reviewCandidatesInteractively(
 export async function runInitCli(argv: string[], projectRoot: string): Promise<number> {
   const args = argv.slice(2);
   const autoYes = args.includes("--yes") || !process.stdin.isTTY;
+
+  // ── Onboarding: first-run environment detection ──────────────────
+  if (!isOnboarded(projectRoot)) {
+    const env = detectEnvironment(projectRoot);
+    process.stdout.write(formatOnboardingMessage(env));
+
+    const options = getOnboardingOptions(env);
+    if (options.length > 0 && !autoYes) {
+      for (const opt of options) {
+        process.stdout.write(`  ${opt.key}) ${opt.label}\n`);
+      }
+      process.stdout.write("\n");
+
+      const rl = createInterface({ input, output });
+      const answer = await new Promise<string>((resolve) => {
+        rl.question("選擇 [" + options.map((o) => o.key).join("/") + "]: ", resolve);
+      });
+      rl.close();
+
+      const picked = options.find((o) => o.key === answer.trim().toUpperCase()) ?? options[0];
+
+      if (picked.choice.action === "skip-workspace") {
+        saveOnboardingConfig(projectRoot, {
+          brainPath: join(projectRoot, "MEMORY.md"),
+          onboardedAt: new Date().toISOString(),
+          environment: "workspace",
+        });
+        process.stdout.write("\n[brain] 已跳過。在各專案目錄跑 oh-my-brain init 來分別設定。\n");
+        return 0;
+      }
+
+      saveOnboardingConfig(projectRoot, {
+        brainPath: picked.choice.brainPath,
+        onboardedAt: new Date().toISOString(),
+        environment: env.isWorkspace ? "workspace" : env.isProjectRoot ? "project" : "directory",
+      });
+      process.stdout.write(`\n[brain] ✅ 記憶位置：${picked.choice.brainPath}\n\n`);
+    } else {
+      // Non-interactive or single option — just save default
+      saveOnboardingConfig(projectRoot, {
+        brainPath: join(projectRoot, "MEMORY.md"),
+        onboardedAt: new Date().toISOString(),
+        environment: env.isWorkspace ? "workspace" : env.isProjectRoot ? "project" : "directory",
+      });
+    }
+  }
+
   const summary = buildInitSummary(projectRoot);
 
   process.stdout.write("[brain] Scanning project...\n");
