@@ -12,6 +12,8 @@ import type {
   TaskType,
   SqueezeConfig,
   DagNode,
+  OutcomeRecord,
+  ProcedureRecord,
 } from "../types.js";
 import type { BudgetAllocation } from "./budget.js";
 import { estimateTokens } from "./budget.js";
@@ -132,4 +134,99 @@ function formatPreferences(preferences: PreferenceRecord[]): string {
     (p) => `- [${p.key}] (confidence: ${p.confidence.toFixed(1)}): ${p.value}`
   );
   return `<squeeze-preferences>\n${lines.join("\n")}\n</squeeze-preferences>`;
+}
+
+// ── Sub-agent personal context ─────────────────────────────────
+
+/**
+ * Build a `<personal-context>` block for sub-agent spawning.
+ * Contains directives (rules), an optional matched procedure, and cautions
+ * from the outcome loop. Token-capped with a graceful degradation strategy.
+ */
+export function formatPersonalContext(
+  directives: DirectiveRecord[],
+  procedure: ProcedureRecord | null,
+  cautions: OutcomeRecord[],
+  maxTokens = 2000
+): string {
+  const sections: string[] = [];
+
+  // ## Your Rules — always included (never truncated)
+  if (directives.length > 0) {
+    const lines = directives.map((d) => `- ${d.value}`);
+    sections.push(`## Your Rules\n${lines.join("\n")}`);
+  }
+
+  // ## Procedure — full version first
+  let procedureSection = formatProcedureSection(procedure, false);
+  if (procedureSection) sections.push(procedureSection);
+
+  // ## Cautions
+  let cautionRecords = cautions;
+  let cautionsSection = formatCautionsSection(cautionRecords);
+  if (cautionsSection) sections.push(cautionsSection);
+
+  let body = sections.join("\n\n");
+  let result = `<personal-context>\n${body}\n</personal-context>`;
+
+  // Token cap: first reduce cautions to 1
+  if (estimateTokens(result) > maxTokens && cautionRecords.length > 1) {
+    cautionRecords = cautionRecords.slice(0, 1);
+    result = rebuildPersonalContext(directives, procedure, cautionRecords, false);
+  }
+
+  // Token cap: then reduce procedure to title+pitfalls only
+  if (estimateTokens(result) > maxTokens && procedure) {
+    result = rebuildPersonalContext(directives, procedure, cautionRecords, true);
+  }
+
+  return result;
+}
+
+function rebuildPersonalContext(
+  directives: DirectiveRecord[],
+  procedure: ProcedureRecord | null,
+  cautions: OutcomeRecord[],
+  procedureTitleOnly: boolean
+): string {
+  const sections: string[] = [];
+
+  if (directives.length > 0) {
+    const lines = directives.map((d) => `- ${d.value}`);
+    sections.push(`## Your Rules\n${lines.join("\n")}`);
+  }
+
+  const procSection = formatProcedureSection(procedure, procedureTitleOnly);
+  if (procSection) sections.push(procSection);
+
+  const cautionSection = formatCautionsSection(cautions);
+  if (cautionSection) sections.push(cautionSection);
+
+  const body = sections.join("\n\n");
+  return `<personal-context>\n${body}\n</personal-context>`;
+}
+
+function formatProcedureSection(
+  procedure: ProcedureRecord | null,
+  titleOnly: boolean
+): string | null {
+  if (!procedure) return null;
+  const lines: string[] = [`## Procedure: ${procedure.title}`];
+  if (!titleOnly) {
+    for (const step of procedure.steps) {
+      lines.push(`${step.order}. ${step.action}`);
+    }
+  }
+  for (const pitfall of procedure.pitfalls) {
+    lines.push(`⚠️ Pitfall: ${pitfall}`);
+  }
+  return lines.join("\n");
+}
+
+function formatCautionsSection(cautions: OutcomeRecord[]): string | null {
+  if (cautions.length === 0) return null;
+  const lines = cautions.map(
+    (c) => `- ⚠️ ${c.lesson} (${c.timestamp.slice(0, 10)})`
+  );
+  return `## Cautions\n${lines.join("\n")}`;
 }
