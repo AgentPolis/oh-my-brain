@@ -27,12 +27,15 @@ import { MessageStore } from "./storage/messages.js";
 import { DirectiveStore } from "./storage/directives.js";
 import { classify } from "./triage/classifier.js";
 import { TaskDetector } from "./assembly/task-detector.js";
-import { allocateBudget, setTokenCounter } from "./assembly/budget.js";
-import { assemble } from "./assembly/assembler.js";
+import { allocateBudget, setTokenCounter, estimateTokens } from "./assembly/budget.js";
+import { assemble, formatPersonalContext } from "./assembly/assembler.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import { Level } from "./types.js";
 import { Compactor } from "./compact/compactor.js";
 import { DagStore } from "./storage/dag.js";
+import { OutcomeStore } from "./storage/outcomes.js";
+import { ProcedureStore } from "./storage/procedures.js";
+import { dirname, join } from "path";
 
 export class SqueezeContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
@@ -54,6 +57,10 @@ export class SqueezeContextEngine implements ContextEngine {
   private lastIngestedContent: string | undefined;
   private tokenCounter?: (text: string) => number;
   private ownsDb = true;
+  private outcomeStore!: OutcomeStore;
+  private procedureStore!: ProcedureStore;
+  private _subagentTaskHint?: string;
+  private squeezePath!: string;
 
   constructor(config: Partial<SqueezeConfig> = {}, tokenCounter?: (text: string) => number) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -63,6 +70,7 @@ export class SqueezeContextEngine implements ContextEngine {
   // ── Lifecycle hooks ────────────────────────────────────────────
 
   async bootstrap(dbPath: string): Promise<void> {
+    this.squeezePath = join(dirname(dbPath), ".squeeze");
     this.brainDb = await pgliteFactory.create(dbPath);
 
     if (!(await checkPgIntegrity(this.brainDb))) {
@@ -103,6 +111,11 @@ export class SqueezeContextEngine implements ContextEngine {
     this.circuitBreaker = new CircuitBreaker(this.config.circuitBreaker);
 
     this.turnIndex = await this.messages.getMaxTurn();
+
+    // JSONL-based stores (outcome loop + procedures)
+    if (!this.squeezePath) this.squeezePath = join(process.cwd(), ".squeeze");
+    this.outcomeStore = new OutcomeStore(this.squeezePath);
+    this.procedureStore = new ProcedureStore(this.squeezePath);
   }
 
   async ingest(msg: Message, turnIndex?: number): Promise<void> {
@@ -216,12 +229,43 @@ export class SqueezeContextEngine implements ContextEngine {
   }
 
   async prepareSubagentSpawn(parentContext: AssembledContext): Promise<AssembledContext> {
+    const taskDescription = this._subagentTaskHint;
+    this._subagentTaskHint = undefined; // consume once
+
+    // 1. Gather personal context
+    const directives = await this.directives.getActiveDirectives();
+
+    const matchedProcedure = taskDescription
+      ? this.procedureStore.findApprovedByTrigger(taskDescription)
+      : null;
+
+    const cautions = taskDescription
+      ? this.outcomeStore.findRelevant(taskDescription, 3)
+      : [];
+
+    // 2. Format as plain text block
+    const personalBlock = formatPersonalContext(
+      directives,
+      matchedProcedure,
+      cautions,
+      this.config.subagentPersonalContextMaxTokens
+    );
+
+    // 3. Assemble with half parent budget
+    const halfMax = Math.floor(parentContext.tokenCount * 0.5);
     const halfBudget: TokenBudget = {
-      maxTokens: Math.floor(parentContext.tokenCount * 0.5),
+      maxTokens: halfMax,
       usedTokens: 0,
-      available: Math.floor(parentContext.tokenCount * 0.5),
+      available: halfMax,
     };
-    return this.assemble(halfBudget);
+    const assembled = await this.assemble(halfBudget);
+
+    // Prepend personal context as system message
+    const personalTokens = estimateTokens(personalBlock);
+    assembled.messages.unshift({ role: "system", content: personalBlock });
+    assembled.tokenCount += personalTokens;
+
+    return assembled;
   }
 
   async onSubagentEnded(result: SubagentResult): Promise<void> {
@@ -234,6 +278,18 @@ export class SqueezeContextEngine implements ContextEngine {
 
   setMemoryEnabled(enabled: boolean): void {
     this.memoryEnabled = enabled;
+  }
+
+  setSubagentTaskHint(description: string): void {
+    this._subagentTaskHint = description;
+  }
+
+  getOutcomeStore(): OutcomeStore {
+    return this.outcomeStore;
+  }
+
+  getProcedureStore(): ProcedureStore {
+    return this.procedureStore;
   }
 
   async getStatus(): Promise<object> {
