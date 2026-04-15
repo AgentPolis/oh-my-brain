@@ -2,11 +2,12 @@
 
 > **Your personal world model that every AI agent grounds itself in.**
 >
-> v0.6.0 in progress. Cognitive memory is implemented: events, viewpoints,
-> habits, relations, schemas, and event-first recall/search are live.
-> Pending: final publish prep and live post-release validation.
+> v0.7.0 shipped. PGLite + Knowledge Graph architecture live.
+> Cognitive memory complete: events, viewpoints, habits, relations,
+> schemas. 594 tests passing. LongMemEval 92% (46/50, temporal subset).
+> Pending: publish, full 500-question benchmark, launch.
 >
-> Updated: 2026-04-14
+> Updated: 2026-04-15
 
 ---
 
@@ -70,7 +71,7 @@
   ```bash
   npm publish --access public
   ```
-  確認 `oh-my-brain@0.6.0` 出現在 npmjs.com
+  確認 `oh-my-brain@0.7.0` 出現在 npmjs.com
 
 - [ ] **搶 namespace（低成本高保護）**
   - 註冊 `ohmybrain.dev` domain（~$12/年）
@@ -163,6 +164,25 @@
 
 ---
 
+## 🧹 Tech Debt (from eng review 2026-04-15)
+
+- [ ] **抽出共用 JSONL store helper** (P3, S)
+  OutcomeStore, ProcedureStore, EventStore 三個 store 有一樣的 getAll()/append()。
+  抽成 `src/storage/jsonl-store.ts`，新 store 只需寫 schema。改 3 個檔案。
+
+- [ ] **findRelevant() 語意匹配升級** (P2, M)
+  OutcomeStore.findRelevant() 和 ProcedureStore.findApprovedByTrigger() 用純 keyword overlap。
+  "deploy to production" 能 match "deploy rollback"，但 "push to prod" match 不到。
+  等用戶回報 match 不準時再做。可能需要 embedding 或簡單的 synonym map。
+  Depends on: 4 killing features 先 ship。
+
+- [ ] **統一 review dashboard** (P3, M)
+  產品有 candidates, type candidates, link candidates, reflection proposals, procedures。
+  5 個 approval surface 太分散。考慮統一的 `oh-my-brain review` CLI 或 MCP tool
+  整合所有 pending items。Codex outside voice 建議。
+
+---
+
 ## 🎯 Traction Checkpoints
 
 | 時間 | 指標 | Go/No-Go |
@@ -196,14 +216,14 @@
 
 | Metric | Value |
 |--------|-------|
-| Tests passing | 307 / 307 |
-| Test files | 26 |
+| Tests passing | 594 / 594 |
+| Test files | 51 |
 | Core modules | 13 CLI + 7 src |
 | MCP tools | 9 |
 | Built-in types | 5 |
 | Link kinds | 4 |
 | Action kinds | 9 (incl UndoAction) |
-| Tarball size | 146 kB packed |
-| Total files in package | 76 |
+| Tarball size | 698.9 kB packed |
+| Total files in package | 172 |
 | Phase 4 new code | ~1600 lines |
-| Commits since v0.1 | 17 |
+| Commits since v0.1 | 20+ |

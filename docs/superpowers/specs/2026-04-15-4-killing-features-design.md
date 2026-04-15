@@ -505,3 +505,16 @@ Kill 1 (Outcome)  ←→  Kill 2 (Procedure)    // parallel, no dependency
 | `src/types.ts` | +OutcomeRecord, +ProcedureRecord, +ProcedureStep, +SessionStats, +SqueezeConfig.subagentPersonalContextMaxTokens |
 
 ### Estimated total: ~840 new lines + ~200 modified lines
+
+---
+
+## Eng Review Amendments (2026-04-15)
+
+6 項修改來自 /plan-eng-review + Codex outside voice：
+
+1. **Stale references:** 計畫裡所有 `squeeze-claw` 路徑改成 `oh-my-brain`，`nanoid` 改 `crypto.randomUUID()`
+2. **Procedure session access:** `brain_save_procedure` 改用 `recent_tool_calls` 參數（agent 傳 messages），MCP server 不碰 session JSONL
+3. **Integration tests:** 加 MCP tool + compress flow 的整合測試（~5 tests in mcp-server.test.ts + compress.test.ts）
+4. **Null guard:** `bootstrapWithDb()` 也初始化 outcomeStore/procedureStore；`prepareSubagentSpawn()` 加 null check
+5. **Hard trim:** `formatPersonalContext()` 加 hard trim — 如果 L3 directives 超過 token cap，截斷最舊的，加 "(N more omitted)"
+6. **Procedure counting:** compress hook 讀 `procedures.jsonl` 比對 timestamp 算 `new_procedures`，而非 hardcode 0
