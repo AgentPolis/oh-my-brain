@@ -32,6 +32,10 @@ import { detectHabits, loadHabits, saveHabits } from "./habit-detector.js";
 import { detectRelationSignals, RelationStore, updateRelation, upsertInfluenceRelation } from "./relation-store.js";
 import { detectSchemas, SchemaStore } from "./schema-detector.js";
 import { consolidateProject } from "./consolidate.js";
+import { scanSessionForFailures } from "../src/outcome/detector.js";
+import { OutcomeStore } from "../src/storage/outcomes.js";
+import { buildGrowthOneLiner, detectChinese } from "../src/growth/one-liner.js";
+import type { SessionStats } from "../src/types.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -1211,6 +1215,48 @@ export async function main() {
     process.stderr.write(
       `[brain] ontology scan skipped: ${(err as Error).message}\n`
     );
+  }
+
+  // --- Outcome detection ---
+  const squeezePath = join(cwd, ".squeeze");
+  const outcomeStore = new OutcomeStore(squeezePath);
+  const sessionMessages = processed.map((m) => ({
+    role: m.role as "user" | "assistant" | "tool" | "system",
+    content: m.originalText,
+  }));
+  const outcomes = scanSessionForFailures(sessionMessages, sessionId);
+  const newOutcomes = outcomes.filter(
+    (o) => !outcomeStore.isDuplicate(o.failure_mode, o.timestamp)
+  );
+  if (newOutcomes.length > 0) {
+    outcomeStore.append(newOutcomes);
+    const outcomeCandidateStore = loadCandidateStore(cwd);
+    const cautionTexts = newOutcomes.map((o) => o.lesson);
+    ingestCandidates(outcomeCandidateStore, cautionTexts, { source: "claude", projectRoot: cwd });
+    saveCandidateStore(cwd, outcomeCandidateStore);
+    process.stderr.write(
+      `[brain] ${newOutcomes.length} outcome${newOutcomes.length === 1 ? "" : "s"} detected and recorded\n`
+    );
+  }
+
+  // --- Growth one-liner ---
+  const sessionStats: SessionStats = {
+    new_directives: directivesWritten ?? 0,
+    new_preferences: 0,
+    new_outcomes: newOutcomes,
+    new_procedures: 0,
+  };
+  const isChinese = detectChinese(sessionMessages);
+  const growthLine = buildGrowthOneLiner(sessionStats, isChinese);
+  if (growthLine) {
+    mkdirSync(squeezePath, { recursive: true });
+    appendFileSync(join(squeezePath, "growth-journal.jsonl"), JSON.stringify({
+      ts: new Date().toISOString(),
+      kind: "session-end",
+      summary: growthLine,
+      stats: sessionStats,
+    }) + "\n");
+    process.stderr.write(`${growthLine}\n`);
   }
 
   if (process.env.OH_MY_BRAIN_SKIP_AUTO_CONSOLIDATE !== "1") {
