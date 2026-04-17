@@ -17,6 +17,7 @@ import type {
 } from "../types.js";
 import type { BudgetAllocation } from "./budget.js";
 import { estimateTokens } from "./budget.js";
+import { formatAge } from "./age-format.js";
 
 export interface AssemblerInput {
   systemPrompt: Message[];
@@ -124,14 +125,14 @@ export function assemble(input: AssemblerInput): AssembledContext {
 
 function formatDirectives(directives: DirectiveRecord[]): string {
   const lines = directives.map(
-    (d) => `- [${d.key}]: ${d.value}`
+    (d) => `- (${formatAge(d.createdAt)}) [${d.key}]: ${d.value}`
   );
   return `<squeeze-directives>\n${lines.join("\n")}\n</squeeze-directives>`;
 }
 
 function formatPreferences(preferences: PreferenceRecord[]): string {
   const lines = preferences.map(
-    (p) => `- [${p.key}] (confidence: ${p.confidence.toFixed(1)}): ${p.value}`
+    (p) => `- (${formatAge(p.createdAt)}) [${p.key}] (confidence: ${p.confidence.toFixed(1)}): ${p.value}`
   );
   return `<squeeze-preferences>\n${lines.join("\n")}\n</squeeze-preferences>`;
 }
