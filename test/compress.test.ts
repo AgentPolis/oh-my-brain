@@ -277,6 +277,41 @@ describe("processMessages", () => {
     expect(candidates[0]).toContain("右邊側邊欄提醒很多");
   });
 
+  it("catches user corrections as memory candidates", () => {
+    const corrections = [
+      // EN: negation / correction
+      "No, that's not right — it should use absolute dates",
+      "Actually, I meant the other endpoint",
+      "Wait, no — don't use relative time",
+      "You're wrong, the API returns a list",
+      "Why did you add that? I didn't ask for it",
+      "I said use dates, not relative time",
+      "Stop making assumptions about the format",
+      "That's not what I asked for",
+      // CJK: negation / correction
+      "不對吧，這個應該是放日期不是放相對時間才對啊",
+      "不是這樣的吧，你搞錯了整個方向，要重新來過",
+      "為什麼要用 relative time？這完全沒有意義吧",
+      "這個方向錯了吧，你改回來吧，用原本的方案就好",
+      // JP
+      "違う、そうじゃないよ、もう一回最初からやり直してください",
+      // KR
+      "아니, 그게 아니야, 처음부터 다시 해봐야 할 것 같아",
+    ];
+    for (const text of corrections) {
+      const entries = [
+        makeEntry("user", text),
+        ...Array.from({ length: 20 }, () => makeEntry("user", "other")),
+      ];
+      const result = processMessages(entries as any);
+      const candidates = extractMemoryCandidates(result);
+      expect(
+        candidates.length,
+        `expected candidate for: "${text}"`
+      ).toBeGreaterThan(0);
+    }
+  });
+
   it("does NOT classify assistant messages as L3 directives", () => {
     // Assistant message mentioning "always" should not be L3
     const entries = [

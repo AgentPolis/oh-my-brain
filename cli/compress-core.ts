@@ -139,9 +139,17 @@ interface SchemaWriteResult {
 }
 
 const MEMORY_CANDIDATE_PATTERNS = [
+  // EN: recommendations, requirements, complaints, corrections
   /\b(should|shouldn't|needs? to|must not|too much|too many|reduce|improve|fix|wrong)\b/i,
+  /\b(not what I|that's not|no[,.]? (it|that|this)|actually[,.]? (it|I|we|the)|wait[,.]? (no|that))\b/i,
+  /\b(I meant|I said|you('re| are) (wrong|confused|mistaken)|why (did|would) you)\b/i,
+  /\b(don't|do not|stop) (do|mak|add|us|put|writ)\w*\b/i,
+  // CJK: corrections, complaints, feedback (language-neutral CJK patterns)
   /(應該|不應該|不要|別再|太多|太少|搞錯|改善|改成|保持|一律|永遠|都要|需要|不能|希望)/,
+  /(不對|不是這樣|搞錯了|為什麼要|怎麼會|沒有意義|糟糕|方向錯)/,
   /(提醒很多|有點吵|太擠|太亂|簡化一點)/,
+  // JP/KR basic correction signals
+  /(違う|間違|なんで|おかしい|아니|틀렸|왜 그런)/,
 ];
 
 interface NormalizedContent {
