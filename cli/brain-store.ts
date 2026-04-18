@@ -105,7 +105,28 @@ export function initBrainDir(projectRoot: string): BrainPaths {
   if (!existsSync(paths.goals)) {
     writeFileSync(paths.goals, "## Goals\n\n", "utf8");
   }
+
+  // Ensure .brain/ and .squeeze/ are in .gitignore (personal data protection)
+  ensureGitignore(projectRoot, [".brain/", ".squeeze/"]);
+
   return paths;
+}
+
+/**
+ * Ensure entries exist in .gitignore. Creates the file if missing.
+ * Idempotent — won't add duplicates.
+ */
+function ensureGitignore(projectRoot: string, entries: string[]): void {
+  const gitignorePath = join(projectRoot, ".gitignore");
+  let content = "";
+  if (existsSync(gitignorePath)) {
+    content = readFileSync(gitignorePath, "utf8");
+  }
+  const lines = content.split("\n");
+  const toAdd = entries.filter((e) => !lines.some((l) => l.trim() === e));
+  if (toAdd.length === 0) return;
+  const newContent = content.trimEnd() + "\n" + toAdd.join("\n") + "\n";
+  writeFileSync(gitignorePath, newContent, "utf8");
 }
 
 // ── Read Helpers ──────────────────────────────────────────────────
