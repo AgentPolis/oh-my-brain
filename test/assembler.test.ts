@@ -275,4 +275,95 @@ describe("assemble", () => {
     expect(result.metadata.degraded).toBe(true);
     expect(result.metadata.degradedReason).toBe("classifier timeout");
   });
+
+  it("directives include date annotation", () => {
+    const directives = [
+      {
+        ...makeDirective(1, "customers", "we have 5 customers"),
+        createdAt: "2026-01-15T10:00:00.000Z",
+      },
+    ];
+
+    const result = assemble(makeInput({ directives }));
+
+    const block = result.messages.find((m) =>
+      m.content.includes("squeeze-directives")
+    );
+    expect(block).toBeDefined();
+    expect(block!.content).toContain("(2026-01-15)");
+    expect(block!.content).toContain("we have 5 customers");
+  });
+
+  it("preferences include date annotation", () => {
+    const preferences = [
+      {
+        ...makePreference(1, "lang", "TypeScript", 0.9),
+        createdAt: "2026-04-15T08:00:00.000Z",
+      },
+    ];
+
+    const result = assemble(makeInput({ preferences }));
+
+    const block = result.messages.find((m) =>
+      m.content.includes("squeeze-preferences")
+    );
+    expect(block).toBeDefined();
+    expect(block!.content).toContain("(2026-04-15)");
+    expect(block!.content).toContain("TypeScript");
+  });
+
+  it("snapshot: assembled directive block shape with date prefix", () => {
+    const directives = [
+      {
+        ...makeDirective(1, "lang", "always reply in English"),
+        createdAt: "2026-04-10T12:00:00.000Z",
+      },
+      {
+        ...makeDirective(2, "tone", "be concise"),
+        createdAt: "2026-04-17T08:00:00.000Z",
+      },
+    ];
+
+    const result = assemble(makeInput({ directives }));
+
+    const block = result.messages.find((m) =>
+      m.content.includes("squeeze-directives")
+    );
+    expect(block).toBeDefined();
+    const lines = block!.content.split("\n").filter((l) => l.startsWith("- "));
+    expect(lines).toHaveLength(2);
+    // Each line: - (YYYY-MM-DD) [key]: value
+    for (const line of lines) {
+      expect(line).toMatch(/^- \(\d{4}-\d{2}-\d{2}\) \[.+\]: .+$/);
+    }
+  });
+});
+
+describe("assemble with domain labels", () => {
+  it("formats directives with domain labels when domain is set", () => {
+    const directives = [
+      { ...makeDirective(1, "tdd", "always use TDD"), domain: "work" },
+      { ...makeDirective(2, "sleep", "sleep 8 hours"), domain: "life" },
+    ];
+
+    const budget = allocateBudget(10000, 100, DEFAULT_TASK_WEIGHTS, DEFAULT_CONFIG);
+    const result = assemble({
+      systemPrompt: [{ role: "system", content: "test" }],
+      directives,
+      preferences: [],
+      freshTail: [],
+      taskType: "coding",
+      budget,
+      config: DEFAULT_CONFIG,
+      degraded: false,
+      dagNodes: [],
+    });
+
+    const directiveMsg = result.messages.find((m) =>
+      m.content.includes("squeeze-directives")
+    );
+    expect(directiveMsg).toBeDefined();
+    expect(directiveMsg!.content).toContain("[work]");
+    expect(directiveMsg!.content).toContain("[life]");
+  });
 });

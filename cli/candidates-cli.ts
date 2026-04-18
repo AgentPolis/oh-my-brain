@@ -141,7 +141,8 @@ function cmdList(projectRoot: string, showAll: boolean): number {
 async function cmdApprove(
   projectRoot: string,
   idPrefix: string,
-  editedText: string | undefined
+  editedText: string | undefined,
+  domain: string | undefined
 ): Promise<number> {
   const store = loadCandidateStore(projectRoot);
   const fullId = resolveCandidateId(store, idPrefix);
@@ -153,7 +154,7 @@ async function cmdApprove(
   }
 
   const action = await applyPromoteCandidate(
-    { projectRoot, source: "cli" },
+    { projectRoot, source: "cli", domain },
     { candidateId: fullId, finalText: editedText }
   );
   if (!action) {
@@ -163,12 +164,13 @@ async function cmdApprove(
     return 1;
   }
 
+  const target = domain ? `memory/${domain}.md` : "MEMORY.md";
   if (action.payload.written) {
-    process.stdout.write(`✓ Approved ${fullId.slice(0, 8)} → MEMORY.md\n`);
+    process.stdout.write(`✓ Approved ${fullId.slice(0, 8)} → ${target}\n`);
     process.stdout.write(`  ${action.payload.finalText}\n`);
   } else {
     process.stdout.write(
-      `✓ Approved ${fullId.slice(0, 8)} (already present in MEMORY.md, no duplicate written)\n`
+      `✓ Approved ${fullId.slice(0, 8)} (already present in ${target}, no duplicate written)\n`
     );
   }
   process.stdout.write(`  action: ${action.id}\n`);
@@ -552,6 +554,12 @@ function parseEditFlag(args: string[]): string | undefined {
   return args[asIdx + 1];
 }
 
+function parseDomainFlag(args: string[]): string | undefined {
+  const idx = args.indexOf("--domain");
+  if (idx === -1 || idx === args.length - 1) return undefined;
+  return args[idx + 1];
+}
+
 export async function runCandidatesCli(argv: string[], projectRoot: string): Promise<number> {
   const args = argv.slice(2);
 
@@ -573,10 +581,10 @@ export async function runCandidatesCli(argv: string[], projectRoot: string): Pro
   if (cmd === "approve") {
     const id = args[1];
     if (!id) {
-      process.stderr.write("Usage: brain-candidates approve <id> [--as \"text\"]\n");
+      process.stderr.write('Usage: brain-candidates approve <id> [--as "text"] [--domain <name>]\n');
       return 1;
     }
-    return await cmdApprove(projectRoot, id, parseEditFlag(args));
+    return await cmdApprove(projectRoot, id, parseEditFlag(args), parseDomainFlag(args));
   }
 
   if (cmd === "reject") {

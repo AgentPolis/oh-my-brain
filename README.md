@@ -125,7 +125,7 @@ travel with you via a portable `MEMORY.md` file plus an MCP server.
 | Compression              | Lossy (data lost)           | Lossless archive — summaries in context, full text searchable |
 | Temporal queries         | Vector similarity only      | Time-indexed archive: `brain_search --when "last Tuesday"` |
 | Memory model             | Flat text / vectors         | Cognitive: events, viewpoints, habits, sentiments, relations, schemas |
-| LongMemEval              | 49-91%                      | 92% (46/50 temporal reasoning, metadata-clean rerun) |
+| LongMemEval              | 49-91%                      | 67.6% official 500q oracle, 92% on 50q temporal subset |
 | Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
 | Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
@@ -314,7 +314,15 @@ We publish real numbers on real datasets. No cherry-picked demos.
 
 ### LongMemEval (ICLR 2025)
 
-Temporal-reasoning subset, 50 questions. Full 500-question run coming.
+We now publish two LongMemEval numbers:
+
+- **Focused temporal subset:** 92% (46/50) on the oracle temporal-reasoning subset.
+- **Full oracle suite:** 67.6% (338/500) with the official `evaluate_qa.py`
+  judge (`gpt-4o`) on `longmemeval_oracle.json`.
+
+The second number is the one to treat as the main public benchmark. It is
+harder, broader, and includes the full mix of single-session, preference,
+knowledge-update, temporal-reasoning, multi-session, and abstention questions.
 
 | System | Score | Notes |
 | ------ | ----- | ----- |
@@ -324,28 +332,35 @@ Temporal-reasoning subset, 50 questions. Full 500-question run coming.
 | oh-my-brain v0.6.1 | 82% (41/50) | + time precision, pattern expansion |
 | MemPalace (AAAK) | 84.2% | Spatial memory metaphor |
 | Raw dump (no oh-my-brain) | 86% (43/50) | Full transcript, no compression |
-| **oh-my-brain v0.7.0** | **92%** (46/50) | Renamed repo, metadata-clean rerun on oracle temporal subset |
+| **oh-my-brain v0.7.0** | **92%** (46/50) | Metadata-clean rerun on 50-question oracle temporal subset |
+| **oh-my-brain v0.7.0** | **67.6%** (338/500) | Official judge on full 500-question oracle suite |
 | Hindsight | 91.4% | Knowledge graph, full dataset |
 | MemPalace (uncompressed mode) | 96.6% | Different eval methodology, see their paper |
 
-**Error analysis (remaining misses):** mostly incomplete event coverage
-and event-to-event duration reasoning. In other words: not "the brain
-forgot everything," but "the brain remembered the events and still
-missed one timeline link."
+**What the full 500-question score says:** oh-my-brain is already strong at
+single-session user facts, assistant-side facts, and explicit preferences. The
+main remaining weakness is long-horizon synthesis: multi-session aggregation,
+temporal composition, and abstaining when the answer is not actually present.
 
-Sample size is 50 questions. We're running the full 500-question suite
-next. We'll update these numbers when we have them.
+Official 500-question per-type results:
+
+- `single-session-assistant`: 100.0% (56/56)
+- `single-session-user`: 97.1% (68/70)
+- `single-session-preference`: 86.7% (26/30)
+- `knowledge-update`: 79.5% (62/78)
+- `temporal-reasoning`: 49.6% (66/133)
+- `multi-session`: 45.1% (60/133)
 
 For public reproducibility, each rerun should publish:
 
 - repo URL + commit hash
 - benchmark runner version / commit
-- dataset + subset (`oracle`, `temporal-reasoning`, 50 questions)
+- dataset + subset (`oracle`, full 500 questions, or the 50-question temporal subset)
 - raw hypotheses JSONL
 - report JSON with environment metadata
 
-See [`docs/research/benchmark-journey.md`](docs/research/benchmark-journey.md)
-for every version, every decision, and every score.
+See [`docs/longmemeval-500-oracle.md`](docs/longmemeval-500-oracle.md)
+for the exact setup, file paths, and interpretation notes.
 
 ### Compression
 
@@ -366,7 +381,6 @@ for every version, every decision, and every score.
 
 - **Provider-side billing savings.** We estimate tokens as `chars / 4`.
   Real savings depend on model, tokenizer, and session shape.
-- **Full 500-question LongMemEval.** 50-question subset only. Coming soon.
 - **Decision Replay at scale.** Framework exists, 25 scenarios defined,
   full eval pending.
 
@@ -439,7 +453,7 @@ recommend:
 
 **Next:**
 
-- [ ] Full 500-question LongMemEval run
+- [x] Full 500-question LongMemEval run
 - [ ] Live telemetry (opt-in, local only)
 - [ ] LLM-backed classifier for ambiguous cases
 - [ ] Landing page at ohmybrain.dev
@@ -460,6 +474,22 @@ oh-my-brain uses PGLite (embedded PostgreSQL) — real PostgreSQL
 running in your Node.js process. Zero setup, zero Docker, zero
 cloud. But when you need to scale, change one connection string
 to migrate to Supabase or any managed PostgreSQL.
+
+### Domain-Based Memory (v0.8)
+
+oh-my-brain organizes memory by **domains** — the way human brains naturally
+compartmentalize knowledge (Tulving 1973). Instead of a flat file, memories
+live in `memory/work.md`, `memory/investing.md`, etc.
+
+- Agent auto-creates domains from existing MEMORY.md on first run
+- New directives auto-route to the matching domain via keyword matching
+- Sessions only load relevant domains (work session → work memories)
+- `MEMORY.md` remains as an auto-generated compatibility shim
+- MCP tools support `domain` parameter for filtered read/write
+
+**Why domains, not tags:** Files > metadata. You can see domains in your
+file explorer, edit them in any text editor, and delete a domain by
+deleting a file. No query language needed.
 
 - **Knowledge Graph** — Every memory (event, directive, person,
   habit, schema) is a node. Every relationship is an edge.

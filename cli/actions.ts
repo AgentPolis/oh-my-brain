@@ -288,11 +288,13 @@ export interface ActionContext {
   projectRoot: string;
   source?: string;
   sessionId?: string;
+  domain?: string;  // Target domain for domain-routed writes
 }
 
 export interface RememberInput {
   text: string;
   finalText?: string;
+  domain?: string;
 }
 
 export async function applyRememberDirective(
@@ -303,9 +305,10 @@ export async function applyRememberDirective(
   const memoryPathSnapshot = snapshotMemory(ctx.projectRoot);
 
   const meta: WriteMetadata = {
-    source: (ctx.source as "claude" | "codex") ?? "claude",
+    source: ctx.source ?? "unknown",
     sessionId: ctx.sessionId,
     guardSource: "mcp",
+    targetDomain: input.domain ?? ctx.domain,
   };
 
   const written = appendDirectivesToMemory(
@@ -355,10 +358,11 @@ export async function applyPromoteCandidate(
   const meta: WriteMetadata = {
     source:
       record.source === "unknown"
-        ? ((ctx.source as "claude" | "codex") ?? "claude")
-        : (record.source as "claude" | "codex"),
+        ? (ctx.source ?? "unknown")
+        : record.source,
     sessionId: record.sessionId ?? ctx.sessionId,
     guardSource: "candidates",
+    targetDomain: ctx.domain,
   };
 
   const written = appendDirectivesToMemory(

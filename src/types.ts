@@ -79,6 +79,8 @@ export interface DirectiveRecord {
   lastReferencedAt: string | null;
   supersededBy: number | null;
   supersededAt: string | null;
+  /** Domain this directive belongs to (e.g., "work", "life"). Undefined for flat MEMORY.md. */
+  domain?: string;
 }
 
 // ── DAG Summary Node ─────────────────────────────────────────────
