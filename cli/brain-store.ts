@@ -629,16 +629,23 @@ export function migrateToBrain(projectRoot: string): {
         // Filter out noise:
         // - IDE metadata
         if (clean.includes("<ide_opened_file>") || clean.includes("</ide_")) continue;
+        // - System/extractor prompts leaked into memory
+        if (clean.includes("You are analyzing") || clean.includes("Extract the following")) continue;
+        if (clean.includes("JSON format") && clean.length > 100) continue;
         // - One-off conversation fragments (too short or starts with numbers/bullets)
         if (clean.length < 10) continue;
+        // - Multi-line conversation dumps (contains line breaks)
+        if (clean.includes("\n") && clean.length > 200) continue;
         // - User's raw conversation (starts with Chinese question patterns or numbered lists)
         if (/^[0-9]+\.\s/.test(clean)) continue;
-        // - Contains "都要" "你認為" "怎麼" without directive structure → conversation fragment
-        if (/^(都要|你認為|怎麼|我覺得|看看|確認一下)/.test(clean)) continue;
+        // - Contains conversation fragment markers
+        if (/^(都要|你認為|怎麼|我覺得|看看|確認一下|剛那|對了|另外|好，|是的)/.test(clean)) continue;
         // - HTML/XML tags
         if (/^<[a-z_]/.test(clean)) continue;
-        // - One-time task instructions (squeeze-claw cleanup etc.)
+        // - One-time task instructions
         if (/^(全部做|remove all squeeze|砍掉)/.test(clean)) continue;
+        // - File paths as standalone directives
+        if (/^\/Users\//.test(clean)) continue;
 
         directives.push(clean);
       }
