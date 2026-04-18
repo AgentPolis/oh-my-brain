@@ -24,7 +24,18 @@ import {
 import { scanForTypeCandidates } from "./types-store.js";
 import { jaccard, scanForLinkCandidates, tokenSet } from "./links-store.js";
 import { withLock } from "./lockfile.js";
-import { hasBrainDir, brainRemember, refreshMemoryMd } from "./brain-store.js";
+import { hasBrainDir, brainRemember, refreshMemoryMd, resolveBrainPaths } from "./brain-store.js";
+
+/**
+ * Resolve the squeeze directory path.
+ * v2: if .brain/ exists, use .brain/.squeeze/ instead of .squeeze/
+ */
+function resolveSqueezeDir(projectRoot: string): string {
+  if (hasBrainDir(projectRoot)) {
+    return join(projectRoot, ".brain", ".squeeze");
+  }
+  return resolveSqueezeDir(projectRoot);
+}
 import { ArchiveStore, extractTags } from "../src/storage/archive.js";
 import { EventStore, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
@@ -375,7 +386,7 @@ function evaluateInjectionGuard(
     const result = scanForInjection(text);
     if (result.safe) return { safe: true };
 
-    logBlocked(join(projectRoot, ".squeeze"), {
+    logBlocked(resolveSqueezeDir(projectRoot), {
       ts: new Date().toISOString(),
       text,
       reason: result.reason ?? "blocked",
@@ -1127,7 +1138,7 @@ export function appendProjectRunLog(
   projectRoot: string,
   record: Record<string, unknown>
 ): string {
-  const logDir = join(projectRoot, ".squeeze");
+  const logDir = resolveSqueezeDir(projectRoot);
   const logPath = join(logDir, "runs.jsonl");
   mkdirSync(logDir, { recursive: true });
   writeFileSync(logPath, `${JSON.stringify(record)}\n`, { flag: "a" });
@@ -1143,7 +1154,7 @@ export function archiveCompressedMessages(
     maxArchiveMb?: number;
   }
 ): ArchiveWriteResult {
-  const archive = new ArchiveStore(join(projectRoot, ".squeeze"), options.maxArchiveMb);
+  const archive = new ArchiveStore(resolveSqueezeDir(projectRoot), options.maxArchiveMb);
   const existingHashes = new Set(
     archive
       .getBySession(options.sessionId)
@@ -1178,7 +1189,7 @@ export function archiveCompressedMessages(
   });
   archive.append(deduped);
 
-  const timeline = new TimelineIndex(join(projectRoot, ".squeeze"));
+  const timeline = new TimelineIndex(resolveSqueezeDir(projectRoot));
   timeline.rebuild();
 
   return {
@@ -1202,7 +1213,7 @@ export function extractSessionEvents(
     sessionDate: string;
   }
 ): EventWriteResult {
-  const store = new EventStore(join(projectRoot, ".squeeze"));
+  const store = new EventStore(resolveSqueezeDir(projectRoot));
   const existingHashes = new Set(
     store
       .getAll()
@@ -1252,7 +1263,7 @@ function hashEventIdentity(sessionId: string, sourceText: string): string {
 }
 
 export function detectAndStoreHabits(projectRoot: string): HabitWriteResult {
-  const events = new EventStore(join(projectRoot, ".squeeze")).getAll();
+  const events = new EventStore(resolveSqueezeDir(projectRoot)).getAll();
   const existingHabits = loadHabits(projectRoot);
   const newHabits = detectHabits(events, existingHabits);
   if (newHabits.length > 0) {
@@ -1267,7 +1278,7 @@ export function detectAndStoreHabits(projectRoot: string): HabitWriteResult {
 }
 
 export function detectAndStoreRelations(projectRoot: string, processed: ProcessedMessage[]): RelationWriteResult {
-  const store = new RelationStore(join(projectRoot, ".squeeze"));
+  const store = new RelationStore(resolveSqueezeDir(projectRoot));
   let updated = 0;
   for (const message of processed) {
     if (message.role !== "user") continue;
@@ -1295,7 +1306,7 @@ export function detectAndStoreRelations(projectRoot: string, processed: Processe
 export function detectAndStoreSchemas(projectRoot: string): SchemaWriteResult {
   const habits = loadHabits(projectRoot);
   if (habits.length < 2) {
-    const existing = new SchemaStore(join(projectRoot, ".squeeze")).getSummary();
+    const existing = new SchemaStore(resolveSqueezeDir(projectRoot)).getSummary();
     return { detected: 0, total: existing.total, candidates: [] };
   }
 
@@ -1303,7 +1314,7 @@ export function detectAndStoreSchemas(projectRoot: string): SchemaWriteResult {
   const directives = existsSync(memoryPath)
     ? Array.from(parseExistingDirectives(readFileSync(memoryPath, "utf8")))
     : [];
-  const store = new SchemaStore(join(projectRoot, ".squeeze"));
+  const store = new SchemaStore(resolveSqueezeDir(projectRoot));
   const newSchemas = detectSchemas(habits, directives, store.getAll());
   for (const schema of newSchemas) {
     store.upsert(schema);
@@ -1522,7 +1533,7 @@ export async function main() {
   }
 
   // --- Outcome detection ---
-  const squeezePath = join(cwd, ".squeeze");
+  const squeezePath = resolveSqueezeDir(cwd);
   const outcomeStore = new OutcomeStore(squeezePath);
   const sessionMessages = processed.map((m) => ({
     role: m.role as "user" | "assistant" | "tool" | "system",

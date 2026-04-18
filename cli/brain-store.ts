@@ -29,6 +29,7 @@ import {
   renameSync,
   copyFileSync,
   cpSync,
+  lstatSync,
 } from "node:fs";
 import { join, basename } from "node:path";
 
@@ -700,6 +701,31 @@ export function migrateToBrain(projectRoot: string): {
           // Best effort copy
         }
       }
+    }
+  }
+
+  // Delete old .squeeze/ after migration (data is now in .brain/.squeeze/)
+  const oldSqueezePath = join(projectRoot, ".squeeze");
+  if (existsSync(oldSqueezePath)) {
+    try {
+      const stat = lstatSync(oldSqueezePath);
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        const { rmSync } = require("node:fs");
+        rmSync(oldSqueezePath, { recursive: true });
+      }
+    } catch {
+      // best effort — if it fails, it's just a stale dir
+    }
+  }
+
+  // Delete old memory/ after migration (data is now in .brain/)
+  const oldMemoryDir = join(projectRoot, "memory");
+  if (existsSync(oldMemoryDir)) {
+    try {
+      const { rmSync } = require("node:fs");
+      rmSync(oldMemoryDir, { recursive: true });
+    } catch {
+      // best effort
     }
   }
 
