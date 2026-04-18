@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .squeeze/
+.brain/
 *.db
 *.db-wal
 *.db-shm
@@ -11,6 +12,7 @@ TODOS.md
 MEMORY.md
 docs/launch-post-draft.md
 docs/plans/
+docs/plan-*.md
 docs/superpowers/
 docs/research/
 .npmrc

@@ -7,7 +7,7 @@
 
 import type { BrainDB } from "./db.js";
 
-export const PG_SCHEMA_VERSION = 5;
+export const PG_SCHEMA_VERSION = 6;
 
 const SCHEMA_SQL = `
   -- Schema version tracking
@@ -175,7 +175,31 @@ const SCHEMA_SQL = `
     graph_node_id  TEXT REFERENCES graph_nodes(id)
   );
 
+  -- Domain column on directives and preferences (v2 .brain/ architecture)
+  DO $$ BEGIN
+    ALTER TABLE directives ADD COLUMN IF NOT EXISTS domain TEXT;
+    ALTER TABLE preferences ADD COLUMN IF NOT EXISTS domain TEXT;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;
+
+  CREATE INDEX IF NOT EXISTS idx_directives_domain ON directives(domain) WHERE domain IS NOT NULL;
+
+  -- Episode extensions on events table (v2 .brain/ architecture)
+  -- These columns enable episodes: structured lessons extracted from sessions.
+  -- episode_type: null = regular event, 'lesson'|'decision'|'pattern' = episode
+  DO $$ BEGIN
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS episode_type TEXT;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS decision TEXT;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS outcome TEXT;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS tags TEXT[];
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS domain TEXT;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS project TEXT;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS frequency INTEGER DEFAULT 1;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;
+
   -- Indexes
+  CREATE INDEX IF NOT EXISTS idx_events_episode_type ON events(episode_type) WHERE episode_type IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_messages_level      ON messages(level);
   CREATE INDEX IF NOT EXISTS idx_messages_turn       ON messages(turn_index);
   CREATE INDEX IF NOT EXISTS idx_messages_type       ON messages(content_type);

@@ -105,9 +105,36 @@ import { initPgSchema } from "../src/storage/pg-schema.js";
 import { loadHabits } from "./habit-detector.js";
 import { RelationStore } from "./relation-store.js";
 import { SchemaStore } from "./schema-detector.js";
+import {
+  hasBrainDir,
+  resolveBrainPaths,
+  brainRemember,
+  assembleBrainToMemory,
+  refreshMemoryMd,
+  migrateToBrain,
+  auditBrain,
+  listProjects,
+  parseProjectInfo,
+  appendHandoff,
+  exportBrain,
+  importBrain,
+  detectDomain,
+  detectProject,
+  extractEpisodesFromHandoff,
+  saveEpisode,
+  searchEpisodes,
+  trackEpisodeFrequency,
+  trackAndPromote,
+  listSkills,
+  generateSkillFromEpisode,
+  extractTags,
+  saveLastSession,
+  type HandoffEntry,
+  type Episode,
+} from "./brain-store.js";
 
 const SERVER_NAME = "oh-my-brain";
-const SERVER_VERSION = "0.7.0";
+const SERVER_VERSION = "0.9.0";
 const PROTOCOL_VERSION = "2024-11-05";
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -141,8 +168,14 @@ const TOOLS: ToolDefinition[] = [
         source: {
           type: "string",
           description:
-            "Which agent is calling (claude, codex, cursor, etc.). Used for provenance in MEMORY.md.",
+            "Which agent is calling (claude, codex, cursor, etc.). Used for provenance.",
           enum: ["claude", "codex", "cursor", "windsurf", "copilot", "unknown"],
+        },
+        is_correction: {
+          type: "boolean",
+          description:
+            "True if this is a user correction ('no', 'wrong', 'I told you X'). " +
+            "Corrections track faster toward skill promotion (2x = immediate skill).",
         },
         session_id: {
           type: "string",
@@ -189,6 +222,10 @@ const TOOLS: ToolDefinition[] = [
         domain: {
           type: "string",
           description: "Filter to a specific domain (e.g., 'work'). Omit to recall from all domains.",
+        },
+        query: {
+          type: "string",
+          description: "Search episodes by keyword (v2). Returns matching lessons, decisions, patterns from past sessions.",
         },
       },
     },
@@ -535,6 +572,84 @@ const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  // ── v2 .brain/ tools ──────────────────────────────────────────
+  {
+    name: "brain_handoff",
+    description:
+      "Write a session handoff entry to the active project's .brain/ file. " +
+      "Call this at session end to record what was done, key decisions, and " +
+      "what's next. This is how the next session knows where you left off. " +
+      "If the session involved 5+ tool calls (complex task), a skill is auto-generated.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "3-5 line summary of what happened this session." },
+        project: { type: "string", description: "Project name. Auto-detected from cwd if omitted." },
+        incomplete: { type: "boolean", description: "True if session ended before completing the task." },
+        tool_call_count: { type: "number", description: "Number of tool calls in this session. If >= 5, auto-generates a skill." },
+        procedure_summary: { type: "string", description: "Optional: concise description of the procedure followed (for skill generation)." },
+      },
+      required: ["summary"],
+    },
+  },
+  {
+    name: "brain_projects",
+    description:
+      "List all projects in .brain/ with their status, in-progress work, and last handoff.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "brain_refresh",
+    description:
+      "Manually trigger MEMORY.md reassembly from .brain/. Call after editing " +
+      ".brain/ files directly, or when switching projects.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "brain_migrate",
+    description:
+      "Migrate from v0.8 memory/ format to v2 .brain/ structured format. " +
+      "Classifies existing directives into identity/goals/domain/project layers. " +
+      "One-time operation for upgrading.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "brain_audit",
+    description:
+      "Show a human-readable health report of your .brain/. " +
+      "Counts identity rules, domains, projects, handoff entries, and MEMORY.md token estimate.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "brain_export",
+    description:
+      "Export .brain/ as a portable JSON bundle (excludes PGLite DB). " +
+      "Use for cross-device sync or backup.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "brain_import",
+    description:
+      "Import a .brain/ JSON bundle (from brain_export). Merges with existing brain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bundle: { type: "string", description: "JSON string from brain_export output." },
+      },
+      required: ["bundle"],
+    },
+  },
+  {
+    name: "brain_skills",
+    description:
+      "List auto-generated skills that emerged from repeated episodes or corrections. " +
+      "Skills are structured procedures (steps + pitfalls + verification) that the agent " +
+      "can follow when encountering similar tasks. Auto-generated when: " +
+      "(1) user corrects the same thing twice, or " +
+      "(2) a pattern appears 3+ times, or " +
+      "(3) a complex task (5+ tool calls) completes successfully via brain_handoff.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 // ── JSON-RPC envelope types ──────────────────────────────────────
@@ -624,9 +739,72 @@ async function handleBrainRemember(args: Record<string, unknown>): Promise<{ con
   const source = typeof args.source === "string" ? args.source : "mcp";
   const sessionId = typeof args.session_id === "string" ? args.session_id : undefined;
   const domain = typeof args.domain === "string" ? args.domain : undefined;
+  const isCorrection = args.is_correction === true;
+  const root = projectRoot();
 
+  // v2: route to .brain/ if it exists
+  if (hasBrainDir(root)) {
+    // Track corrections for skill promotion (1x→think, 2x→skill)
+    if (isCorrection) {
+      const paths = resolveBrainPaths(root);
+      const { episode, promoted, skillPath } = trackAndPromote(paths, text, "correction");
+      // Also log to action log
+      await applyRememberDirective(
+        { projectRoot: root, source, sessionId, domain },
+        { text }
+      );
+      if (promoted && skillPath) {
+        return textResult(
+          `SKILL CREATED from repeated correction: "${text}"\n` +
+          `Skill file: ${skillPath}\n` +
+          `This pattern was corrected ${episode.frequency}x — now a permanent skill.`
+        );
+      }
+      if (episode.frequency === 1) {
+        return textResult(
+          `correction recorded as episode: "${text}"\n` +
+          `First occurrence — thinking about the essence. ` +
+          `If corrected again, this will become a permanent skill.`
+        );
+      }
+      return textResult(
+        `correction tracked (${episode.frequency}x): "${text}"`
+      );
+    }
+
+    const result = brainRemember(root, text, {
+      domain,
+      project: detectProject(resolveBrainPaths(root), process.cwd()) ?? undefined,
+      cwd: process.cwd(),
+    });
+    // Also log to action log for traceability
+    await applyRememberDirective(
+      { projectRoot: root, source, sessionId, domain },
+      { text }
+    );
+
+    // Low confidence → route to candidates for user review
+    if (result.needsReview) {
+      const squeezeDir = join(root, ".brain", ".squeeze");
+      const store = loadCandidateStore(squeezeDir);
+      ingestCandidates(store, [text], { source, sessionId, projectRoot: root });
+      saveCandidateStore(squeezeDir, store);
+      return textResult(
+        `low confidence (${(result.confidence * 100).toFixed(0)}%) — saved as candidate for review. ` +
+        `Suggested layer: ${result.layer}/${result.target}. ` +
+        `User can approve with brain_candidates action=approve.`
+      );
+    }
+
+    if (result.written) {
+      return textResult(`remembered: "${text}" → .brain/${result.layer}${result.layer === "domain" || result.layer === "project" ? "/" + result.target : ""}.md (${(result.confidence * 100).toFixed(0)}% confidence)`);
+    }
+    return textResult(`already remembered: "${text}" is already present in .brain/${result.layer}`);
+  }
+
+  // v1 fallback: write to memory/ or MEMORY.md
   const action = await applyRememberDirective(
-    { projectRoot: projectRoot(), source, sessionId, domain },
+    { projectRoot: root, source, sessionId, domain },
     { text }
   );
 
@@ -642,14 +820,75 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
   const requestedType = typeof args.type === "string" ? args.type : "";
   const withEvidence = args.with_evidence === true;
   const domain = typeof args.domain === "string" ? args.domain : undefined;
+  const query = typeof args.query === "string" ? args.query : undefined;
+  const root = projectRoot();
+
+  // v2: if .brain/ exists and query is provided, search episodes + skills
+  if (hasBrainDir(root) && query) {
+    const paths = resolveBrainPaths(root);
+    const parts: string[] = [];
+
+    // Search skills first (highest priority — learned procedures)
+    const skills = listSkills(paths);
+    const queryLower = query.toLowerCase();
+    const matchedSkills = skills.filter((s) =>
+      s.trigger.toLowerCase().includes(queryLower) ||
+      s.title.toLowerCase().includes(queryLower)
+    );
+    if (matchedSkills.length > 0) {
+      parts.push("## Relevant Skills (learned procedures)");
+      for (const s of matchedSkills) {
+        parts.push(`### ${s.title}`);
+        parts.push(`Procedure:`);
+        s.procedure.forEach((step, i) => parts.push(`  ${i + 1}. ${step}`));
+        if (s.pitfalls.length > 0) {
+          parts.push(`Pitfalls:`);
+          s.pitfalls.forEach((p) => parts.push(`  - ${p}`));
+        }
+        parts.push("");
+      }
+    }
+
+    // Search episodes
+    const episodes = searchEpisodes(paths, query);
+    if (episodes.length > 0) {
+      parts.push("## Related Episodes");
+      const formatted = episodes.map((ep) =>
+        `- [${ep.episode_type}] ${ep.what}${ep.decision ? " → " + ep.decision : ""}${ep.outcome ? " (outcome: " + ep.outcome + ")" : ""} [${ep.date}]`
+      ).join("\n");
+      parts.push(formatted);
+    }
+
+    if (parts.length === 0) {
+      return textResult(`no episodes or skills match "${query}"`);
+    }
+    return textResult(parts.join("\n"));
+  }
+
+  // v2: refresh MEMORY.md before recall if .brain/ exists
+  if (hasBrainDir(root)) {
+    refreshMemoryMd(root, process.cwd());
+  }
 
   let content: string;
   if (domain) {
-    const domainPath = join(projectRoot(), "memory", `${domain}.md`);
-    if (!existsSync(domainPath)) {
-      return textResult(`domain "${domain}" not found — no memory/${domain}.md file`);
+    // v2: check .brain/domains/ first
+    if (hasBrainDir(root)) {
+      const domainPath = join(root, ".brain", "domains", `${domain}.md`);
+      if (existsSync(domainPath)) {
+        content = readFileSync(domainPath, "utf8");
+      } else {
+        const legacyPath = join(root, "memory", `${domain}.md`);
+        if (!existsSync(legacyPath)) return textResult(`domain "${domain}" not found`);
+        content = readFileSync(legacyPath, "utf8");
+      }
+    } else {
+      const domainPath = join(projectRoot(), "memory", `${domain}.md`);
+      if (!existsSync(domainPath)) {
+        return textResult(`domain "${domain}" not found — no memory/${domain}.md file`);
+      }
+      content = readFileSync(domainPath, "utf8");
     }
-    content = readFileSync(domainPath, "utf8");
   } else {
     const path = memoryPath();
     if (!existsSync(path)) return textResult("no directives yet — MEMORY.md does not exist");
@@ -778,8 +1017,8 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
   }`;
 
   // Append cautions from outcome store
-  const root = projectRoot();
-  const outcomeStore = new OutcomeStore(join(root, ".squeeze"));
+  const outcomeRoot = projectRoot();
+  const outcomeStore = new OutcomeStore(join(outcomeRoot, ".squeeze"));
   const cautions = outcomeStore.findRelevant(output, 3);
   if (cautions.length > 0) {
     const cautionLines = cautions.map(
@@ -789,7 +1028,7 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
   }
 
   // Append relevant procedures
-  const procedureStore = new ProcedureStore(join(root, ".squeeze"));
+  const procedureStore = new ProcedureStore(join(outcomeRoot, ".squeeze"));
   const matchedProcedure = procedureStore.findApprovedByTrigger(output);
   if (matchedProcedure) {
     const stepLines = matchedProcedure.steps.map((s) => `${s.order}. ${s.action}`);
@@ -1792,6 +2031,202 @@ async function handleBrainProcedures(args: Record<string, unknown>): Promise<{ c
   return textResult(`error: unknown procedures action "${action}"`);
 }
 
+// ── v2 .brain/ handlers ─────────────────────────────────────────
+
+async function handleBrainHandoff(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  if (!hasBrainDir(root)) {
+    return textResult("error: .brain/ not found. Run brain_migrate first.");
+  }
+
+  const summary = typeof args.summary === "string" ? args.summary.trim() : "";
+  if (!summary) return textResult("error: summary is required");
+
+  const paths = resolveBrainPaths(root);
+  const projectName =
+    typeof args.project === "string"
+      ? args.project
+      : detectProject(paths, process.cwd()) ?? "default";
+  const incomplete = args.incomplete === true;
+
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const hour = now.getHours();
+  const time = hour < 12 ? "AM" : "PM";
+
+  const entry: HandoffEntry = { date, time, summary };
+  appendHandoff(paths, projectName, entry);
+
+  // Extract episodes from handoff summary
+  const domainName = detectDomain(paths, process.cwd());
+  const extracted = extractEpisodesFromHandoff(summary, {
+    domain: domainName,
+    project: projectName,
+  });
+  let episodeCount = 0;
+  const promoted: string[] = [];
+  for (const ep of extracted) {
+    // Use trackAndPromote to avoid double-counting
+    const { episode, promoted: wasPromoted, skillPath } = trackAndPromote(
+      paths, ep.what, ep.episode_type ?? "lesson",
+    );
+    episodeCount++;
+    if (wasPromoted && skillPath) {
+      promoted.push(episode.what);
+    }
+  }
+
+  // Save last session state
+  saveLastSession(paths, {
+    domain: domainName,
+    project: projectName,
+    timestamp: now.toISOString(),
+    incomplete,
+  });
+
+  refreshMemoryMd(root, process.cwd());
+
+  // Auto-generate skill from complex tasks (5+ tool calls, Hermes-style)
+  const toolCallCount = typeof args.tool_call_count === "number" ? args.tool_call_count : 0;
+  const procedureSummary = typeof args.procedure_summary === "string" ? args.procedure_summary : undefined;
+  let skillGenerated: string | null = null;
+
+  if (toolCallCount >= 5 && !incomplete && procedureSummary) {
+    const complexEpisode: Episode = {
+      id: `ep_${Date.now().toString(36)}_complex`,
+      what: procedureSummary,
+      detail: summary,
+      episode_type: "pattern",
+      tags: extractTags(procedureSummary),
+      frequency: 3, // auto-promote complex tasks
+      date: new Date().toISOString().slice(0, 10),
+      domain: domainName,
+      project: projectName,
+    };
+    saveEpisode(paths, complexEpisode);
+    skillGenerated = generateSkillFromEpisode(paths, complexEpisode);
+  }
+
+  let msg = `handoff written to .brain/projects/${projectName}.md`;
+  if (incomplete) msg += " (marked incomplete)";
+  if (episodeCount > 0) msg += `. ${episodeCount} episode(s) extracted.`;
+  if (skillGenerated) {
+    msg += ` SKILL GENERATED: ${skillGenerated}`;
+  }
+  if (promoted.length > 0 && !skillGenerated) {
+    msg += ` SKILL CANDIDATE: "${promoted[0]}" appeared 3+ times.`;
+  }
+  return textResult(msg);
+}
+
+async function handleBrainProjectsList(): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  if (!hasBrainDir(root)) {
+    return textResult("no .brain/ found. Run brain_migrate to create one.");
+  }
+
+  const paths = resolveBrainPaths(root);
+  const projects = listProjects(paths);
+  if (projects.length === 0) return textResult("no projects in .brain/projects/");
+
+  const infos = projects
+    .map((p) => parseProjectInfo(paths, p))
+    .filter(Boolean);
+
+  return textResult(JSON.stringify(infos, null, 2));
+}
+
+async function handleBrainRefresh(): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  if (!hasBrainDir(root)) {
+    return textResult("no .brain/ found. Nothing to refresh.");
+  }
+  refreshMemoryMd(root, process.cwd());
+  const audit = auditBrain(root);
+  return textResult(`MEMORY.md refreshed (~${audit.memoryMdTokenEstimate} tokens). ` +
+    `${audit.identityLines} identity rules, ${audit.domainCount} domains, ${audit.projectCount} projects.`);
+}
+
+async function handleBrainMigrate(): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  if (hasBrainDir(root)) {
+    return textResult(".brain/ already exists. Migration not needed.");
+  }
+  const stats = migrateToBrain(root);
+  return textResult(
+    `Migration complete: ${stats.migrated} directives migrated.\n` +
+    `  identity: ${stats.identity}\n` +
+    `  goals: ${stats.goals}\n` +
+    `  domains: ${stats.domains}\n` +
+    `  projects: ${stats.projects}\n` +
+    `.brain/ structure created. MEMORY.md refreshed.`
+  );
+}
+
+async function handleBrainAudit(): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  const audit = auditBrain(root);
+  if (!audit.hasBrain) {
+    return textResult("no .brain/ found. Run brain_migrate to create one.");
+  }
+  const lines = [
+    "## .brain/ Health Report",
+    "",
+    `Identity rules: ${audit.identityLines}`,
+    `Goals: ${audit.goalsLines}`,
+    `Domains: ${audit.domainCount} (${audit.domains.join(", ") || "none"})`,
+    `Projects: ${audit.projectCount} (${audit.projects.join(", ") || "none"})`,
+    `Handoff entries: ${audit.handoffCount}`,
+    `Last handoff: ${audit.lastHandoffDate ?? "never"}`,
+    `MEMORY.md: ~${audit.memoryMdTokenEstimate} tokens`,
+  ];
+  return textResult(lines.join("\n"));
+}
+
+async function handleBrainExport(): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  try {
+    const bundle = exportBrain(root);
+    return textResult(bundle);
+  } catch (err) {
+    return textResult(`error: ${(err as Error).message}`);
+  }
+}
+
+async function handleBrainImport(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  const bundle = typeof args.bundle === "string" ? args.bundle : "";
+  if (!bundle) return textResult("error: bundle is required");
+  try {
+    const count = importBrain(root, bundle);
+    return textResult(`imported ${count} files into .brain/. MEMORY.md refreshed.`);
+  } catch (err) {
+    return textResult(`error: ${(err as Error).message}`);
+  }
+}
+
+async function handleBrainSkills(): Promise<{ content: ToolContent[] }> {
+  const root = projectRoot();
+  if (!hasBrainDir(root)) {
+    return textResult("no .brain/ found. Run brain_migrate to create one.");
+  }
+  const paths = resolveBrainPaths(root);
+  const skills = listSkills(paths);
+  if (skills.length === 0) {
+    return textResult("no skills yet. Skills are auto-generated when:\n" +
+      "- User corrects the same thing twice (2x correction → skill)\n" +
+      "- A pattern appears 3+ times\n" +
+      "- A complex task (5+ tool calls) completes successfully");
+  }
+  const formatted = skills.map((s) =>
+    `## ${s.title}\n` +
+    `Trigger: ${s.trigger}\n` +
+    `Steps: ${s.procedure.length} | Pitfalls: ${s.pitfalls.length}\n` +
+    `Created: ${s.created_at.slice(0, 10)} (from ${s.promoted_at_frequency}x occurrences)`
+  ).join("\n\n");
+  return textResult(`${skills.length} skill(s):\n\n${formatted}`);
+}
+
 async function callTool(name: string, args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   switch (name) {
     case "brain_remember":
@@ -1830,6 +2265,22 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<{ 
       return handleBrainProcedures(args);
     case "brain_domains":
       return handleBrainDomains();
+    case "brain_handoff":
+      return handleBrainHandoff(args);
+    case "brain_projects":
+      return handleBrainProjectsList();
+    case "brain_refresh":
+      return handleBrainRefresh();
+    case "brain_migrate":
+      return handleBrainMigrate();
+    case "brain_audit":
+      return handleBrainAudit();
+    case "brain_export":
+      return handleBrainExport();
+    case "brain_import":
+      return handleBrainImport(args);
+    case "brain_skills":
+      return handleBrainSkills();
     default:
       return textResult(`error: unknown tool "${name}"`);
   }

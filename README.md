@@ -1,33 +1,30 @@
 # oh-my-brain 🧠
 
-**A second brain that helps every AI agent understand you, work like you, and make fewer mistakes.**
-
-oh-my-brain gives Claude Code, Codex, Cursor, Windsurf, and MCP tools a
-shared memory that survives context resets, session boundaries, and
-agent switches.
-
-Instead of trapping memory inside one tool, it keeps your rules,
-preferences, working style, and corrections in a portable brain you can
-inspect, edit, and carry everywhere.
-
-Not a memory layer. Not a vector store. A **personal world model** built
-from the corrections you give in real conversations, with you as the
-final approver of what gets kept.
-
-It travels with you across every tool: Claude Code, Codex, Cursor,
-Windsurf, and anything that speaks MCP. Your rules, preferences, and
-corrections survive every context reset, every session boundary, every
-agent switch — because they live in a portable `MEMORY.md` file plus a
-typed action log every agent reads from the same way.
-
-You shouldn't have to say "remember that". A real brain just remembers.
-
-> Formerly published as `squeeze-claw`. The compression still works.
-> The real value turned out to be the part that decides what's worth
-> keeping. That's the brain.
+**Your AI grows a `.brain/` — a structured cognitive model that makes every agent understand you, remember what you're working on, and learn from mistakes.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+
+```
+.brain/
+├── identity.md       ← who you are (stable across everything)
+├── goals.md          ← where you're headed
+├── domains/work.md   ← your work persona + standards
+├── projects/my-app.md← progress + handoff log
+├── skills/           ← auto-generated from corrections & patterns
+└── episodes/         ← lessons learned (searchable)
+```
+
+**Three things no other memory tool does:**
+
+1. **Cross-session handoff.** `brain_handoff` records what happened, what was decided, what's next. The next session picks up where you left off. No more re-explaining context.
+
+2. **Correction-driven skill growth.** Correct an agent once, it records the lesson. Correct the same thing twice, it generates a permanent skill file. Complete a complex task (5+ steps), it captures the procedure. Next time, it follows the skill and finishes faster.
+
+3. **Working memory projection.** `.brain/` is the source of truth. `MEMORY.md` is an intelligent projection — stable content (identity + goals) at the top for KV cache, dynamic content (current project + handoff) changes per session. Not a dumb concat of everything.
+
+Works across Claude Code, Codex, Cursor, Windsurf, and anything that speaks MCP.
+You shouldn't have to say "remember that". A real brain just remembers.
 
 ## The story behind it
 
@@ -96,7 +93,7 @@ Four importance levels, plus the thing nobody else does:
   Your brain costs less context than a system prompt.
 
 When you switch from Claude Code to Codex to Cursor, all of the above
-travel with you via a portable `MEMORY.md` file plus an MCP server.
+travel with you via a portable `.brain/` directory plus an MCP server.
 
 ### Cognitive coverage
 
@@ -436,7 +433,7 @@ recommend:
 3. Use `brain-candidates` review queue for anything uncertain
 4. Run `brain-audit` regularly to inspect recent memory writes
 
-## Current status (v0.7.0)
+## Current status (v0.9.0)
 
 **Shipped:**
 

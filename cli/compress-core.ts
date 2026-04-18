@@ -24,6 +24,7 @@ import {
 import { scanForTypeCandidates } from "./types-store.js";
 import { jaccard, scanForLinkCandidates, tokenSet } from "./links-store.js";
 import { withLock } from "./lockfile.js";
+import { hasBrainDir, brainRemember, refreshMemoryMd } from "./brain-store.js";
 import { ArchiveStore, extractTags } from "../src/storage/archive.js";
 import { EventStore, type BrainEvent } from "../src/storage/events.js";
 import { TimelineIndex } from "../src/storage/timeline.js";
@@ -184,6 +185,12 @@ export function resolveMemoryPaths(projectRoot: string): DomainMemoryPath[] {
  * Atomic write via tmp file + rename.
  */
 export function generateMemoryShim(projectRoot: string): void {
+  // v2: use .brain/ assembler when available
+  if (hasBrainDir(projectRoot)) {
+    refreshMemoryMd(projectRoot, process.cwd());
+    return;
+  }
+
   const memoryDir = join(projectRoot, "memory");
   if (!existsSync(memoryDir)) return;
 
@@ -650,6 +657,20 @@ export function appendDirectivesToMemory(
       ).safe
     );
   if (cleaned.length === 0) return 0;
+
+  // v2: route to .brain/ structured storage when available
+  const projectRootDir = dirname(memoryPath);
+  if (hasBrainDir(projectRootDir)) {
+    let written = 0;
+    for (const text of cleaned) {
+      const result = brainRemember(projectRootDir, text, {
+        domain: metadata?.targetDomain,
+        cwd: process.cwd(),
+      });
+      if (result.written) written++;
+    }
+    return written;
+  }
 
   // Domain mode: route to individual domain files
   // Also enters domain mode when targetDomain is explicitly specified.

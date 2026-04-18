@@ -1,6 +1,6 @@
 {
   "name": "oh-my-brain",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "The second brain that follows you across every agent. Importance-aware memory for Claude Code, Codex, and MCP-compatible tools. (Formerly squeeze-claw.)",
   "type": "module",
   "main": "dist/index.js",
@@ -27,8 +27,8 @@
     "brain-remember": "./dist/cli/remember.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts && tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/consolidate.ts cli/growth.ts cli/reflect.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/types-store.ts cli/links-store.ts cli/is-main.ts cli/import.ts cli/init-scan.ts cli/eval.ts cli/import-memory.ts cli/remember.ts --format esm --no-dts --out-dir dist/cli",
-    "build:cli": "tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/consolidate.ts cli/growth.ts cli/reflect.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/types-store.ts cli/links-store.ts cli/is-main.ts cli/import.ts cli/init-scan.ts cli/eval.ts cli/import-memory.ts cli/remember.ts --format esm --no-dts --out-dir dist/cli",
+    "build": "tsup src/index.ts --format esm --dts && tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/consolidate.ts cli/growth.ts cli/reflect.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/types-store.ts cli/links-store.ts cli/is-main.ts cli/import.ts cli/init-scan.ts cli/eval.ts cli/import-memory.ts cli/remember.ts cli/brain-store.ts --format esm --no-dts --out-dir dist/cli",
+    "build:cli": "tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/consolidate.ts cli/growth.ts cli/reflect.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/types-store.ts cli/links-store.ts cli/is-main.ts cli/import.ts cli/init-scan.ts cli/eval.ts cli/import-memory.ts cli/remember.ts cli/brain-store.ts --format esm --no-dts --out-dir dist/cli",
     "dev": "tsup src/index.ts --format esm --dts --watch",
     "test": "vitest",
     "test:run": "vitest run",
