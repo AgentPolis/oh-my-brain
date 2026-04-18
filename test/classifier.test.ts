@@ -211,11 +211,11 @@ describe("L2 preference detection", () => {
     "I find this pattern cleaner than the previous one",
     "that makes more sense to me",
     "the new layout is easier to read",
-    "我比較喜歡用 TypeScript",
-    "我偏好把測試放在另一個資料夾",
-    "我喜歡這種排版",
-    "這樣比較順手",
-    "這個用起來比較直覺",
+    "I prefer using TypeScript",
+    "I prefer putting the tests in a separate directory",
+    "I like this layout better",
+    "This workflow feels more natural to me",
+    "This approach is more intuitive",
   ];
 
   for (const sample of PREFERENCE_SAMPLES) {

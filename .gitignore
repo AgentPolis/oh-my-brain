@@ -10,9 +10,12 @@ dist/
 PRD.md
 TODOS.md
 MEMORY.md
+memory/
 docs/launch-post-draft.md
 docs/plans/
 docs/plan-*.md
 docs/superpowers/
 docs/research/
+docs/longmemeval-*.md
+docs/longmemeval-failure-buckets/
 .npmrc

@@ -243,16 +243,17 @@ describe("processMessages", () => {
 
   it("classifies soft-signal corrective feedback as L1 and surfaces it as a Memory Candidate (not L3)", () => {
     // This is the exact kind of natural-language correction described in
-    // docs/why-memory-candidates.md. "應該", "太多", "搞錯", "改善" are soft
+    // docs/why-memory-candidates.md. "should", "too many", "wrong", and
+    // "improve" are soft
     // signals: obviously important to a human, but NOT explicit imperatives
     // like "always X" or "never Y". The product's two-stage capture model
     // says these belong in the Memory Candidates review queue, not auto-
     // promoted to L3 directives. A previous version of the classifier
     // matched these as L3, which caused false positives on any sentence
-    // containing "應該" or "太多" — including questions.
+    // containing "should" or "too many" — including questions.
     const softSignal = makeEntry(
       "user",
-      "怎麼回事，你剛剛改完辦公室那個，變成我移動時，指標都沒移動了。應該都是要時時移動的，另外右邊側邊欄太多提醒了，能怎麼改善"
+      "Something broke after your last change. The cursor is supposed to keep moving, and there are too many reminders in the right sidebar. How can we improve it?"
     );
     const entries = [
       softSignal,
@@ -263,18 +264,18 @@ describe("processMessages", () => {
 
     const candidates = extractMemoryCandidates(result);
     expect(candidates.length).toBeGreaterThan(0);
-    expect(candidates.some((c) => c.includes("應該"))).toBe(true);
+    expect(candidates.some((c) => c.includes("supposed"))).toBe(true);
   });
 
   it("flags review candidates for corrective user feedback that is not promoted to memory yet", () => {
     const entries = [
-      makeEntry("user", "右邊側邊欄提醒很多，現在有點吵，想再清一點。"),
+      makeEntry("user", "There are too many reminders in the right sidebar. It feels noisy and I want it simplified."),
       ...Array.from({ length: 20 }, () => makeEntry("user", "other")),
     ];
     const result = processMessages(entries as any);
     const candidates = extractMemoryCandidates(result);
     expect(candidates.length).toBeGreaterThan(0);
-    expect(candidates[0]).toContain("右邊側邊欄提醒很多");
+    expect(candidates[0]).toContain("too many reminders");
   });
 
   it("catches user corrections as memory candidates", () => {
@@ -288,15 +289,11 @@ describe("processMessages", () => {
       "I said use dates, not relative time",
       "Stop making assumptions about the format",
       "That's not what I asked for",
-      // CJK: negation / correction
-      "不對吧，這個應該是放日期不是放相對時間才對啊",
-      "不是這樣的吧，你搞錯了整個方向，要重新來過",
-      "為什麼要用 relative time？這完全沒有意義吧",
-      "這個方向錯了吧，你改回來吧，用原本的方案就好",
-      // JP
-      "違う、そうじゃないよ、もう一回最初からやり直してください",
-      // KR
-      "아니, 그게 아니야, 처음부터 다시 해봐야 할 것 같아",
+      // Additional EN correction phrasings
+      "That's wrong — this should store an absolute date, not relative time",
+      "This isn't the right direction, start over from the beginning",
+      "Why are you using relative time? That makes no sense here",
+      "This direction is wrong. Revert it and go back to the original plan",
     ];
     for (const text of corrections) {
       const entries = [

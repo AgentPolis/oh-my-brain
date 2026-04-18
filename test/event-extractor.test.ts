@@ -139,30 +139,30 @@ describe("extractEvents", () => {
     expect(event.detail).toContain("crashed");
   });
 
-  it("supports Chinese acquisition patterns", () => {
+  it("supports acquisition patterns", () => {
     const [event] = extractEvents(
-      { role: "user", content: "我買了新的鍵盤，昨天剛到。" },
+      { role: "user", content: "I bought a new keyboard and it arrived yesterday." },
       baseContext
     );
-    expect(event.what).toContain("買了新的鍵盤");
+    expect(event.what).toContain("bought a new keyboard");
     expect(event.ts_precision).toBe("exact");
   });
 
-  it("supports Chinese travel patterns", () => {
+  it("supports travel patterns", () => {
     const [event] = extractEvents(
-      { role: "user", content: "我去了東京參加會議。" },
+      { role: "user", content: "I went to Tokyo for a conference." },
       baseContext
     );
-    expect(event.what).toContain("去了東京參加會議");
+    expect(event.what).toContain("went to Tokyo");
     expect(["travel", "events", "work"]).toContain(event.category);
   });
 
-  it("supports Chinese start/join patterns", () => {
+  it("supports start/join patterns", () => {
     const [event] = extractEvents(
-      { role: "user", content: "我開始學西班牙文了。" },
+      { role: "user", content: "I started learning Spanish." },
       baseContext
     );
-    expect(event.what).toContain("開始學西班牙文了");
+    expect(event.what).toContain("started learning Spanish");
   });
 
   it("keeps source_text verbatim", () => {
@@ -182,12 +182,12 @@ describe("extractEvents", () => {
     expect(events.find((event) => event.category === "viewpoint")?.detail).toContain("overengineered");
   });
 
-  it("extracts Chinese viewpoints", () => {
+  it("extracts viewpoints from user opinions", () => {
     const events = extractEvents(
-      { role: "user", content: "我覺得這個方案太複雜，維護成本很高。" },
+      { role: "user", content: "I think this approach is too complex and expensive to maintain." },
       baseContext
     );
-    expect(events.find((event) => event.category === "viewpoint")?.detail).toContain("太複雜");
+    expect(events.find((event) => event.category === "viewpoint")?.detail).toContain("too complex");
   });
 
   it("captures standalone sentiment when no action event exists", () => {

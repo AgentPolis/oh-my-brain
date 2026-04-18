@@ -37,12 +37,12 @@ with your project.
 brain.
 
 **Session 2:** You're working on the same project in Codex. The agent
-already knows your preferences, sees yesterday's handoff, and picks up
-where you left off.
+already knows your preferences, reads yesterday's handoff, and keeps
+going without you re-explaining the project.
 
 **Session 5:** You correct the agent: "run tests before committing." It
-records the lesson. After repeated corrections, it can turn that into a
-reusable skill.
+records the lesson. Repeated corrections can later be promoted into a
+more reusable skill or procedure.
 
 **Session 20:** Your `.brain/` contains your identity, goals, work
 standards, project history, skills, and lessons learned. New sessions
@@ -52,14 +52,19 @@ start smarter than the last one.
 
 1. **Shared brain across tools.** Claude, Codex, Cursor, Windsurf, and
    MCP clients can all read the same memory.
-2. **Cross-session handoff.** `brain_handoff` records what happened,
-   what was decided, and what comes next.
-3. **Correction-driven skill growth.** Repeated corrections can become
-   reusable skills and procedures.
-4. **Working memory projection.** `.brain/` is durable storage.
+2. **Importance-aware memory.** Not everything is remembered equally.
+   L0 noise is discarded, L1 observations are compressible, L2
+   preferences are promoted with confidence, and L3 directives are
+   protected from forgetting.
+3. **Cross-session handoff.** `brain_handoff` records what happened,
+   what was decided, and what comes next, so the next agent can continue
+   instead of restarting from zero.
+4. **Correction-driven skill growth.** Repeated corrections can be
+   promoted into reusable skills and procedures.
+5. **Working memory projection.** `.brain/` is durable storage.
    `MEMORY.md` is the flat compatibility layer and session working
    memory.
-5. **Human review for fuzzy memories.** Low-confidence memories go into
+6. **Human review for fuzzy memories.** Low-confidence memories go into
    a review queue instead of being silently stored.
 
 ## How it works
@@ -70,12 +75,15 @@ start smarter than the last one.
 2. **`MEMORY.md` is working memory.** It is auto-assembled each session.
    Stable content stays near the top; dynamic content changes with the
    current project and last handoff.
-3. **Skills grow from corrections.** Correct once, it records the
+3. **Handoffs preserve continuity.** Session state is recorded so the
+   next session can resume from decisions and next steps, not from a
+   blank slate.
+4. **Importance controls memory quality.** L0-L3 classification decides
+   what gets dropped, compressed, promoted, or protected.
+5. **Skills grow from corrections.** Correct once, it records the
    lesson. Correct repeatedly, it can promote that lesson into a more
    reusable skill or procedure.
-4. **Handoffs preserve continuity.** Session state can be recorded and
-   reused so you do not have to re-explain context.
-5. **Review keeps memory trustworthy.** Low-confidence memories go into
+6. **Review keeps memory trustworthy.** Low-confidence memories go into
    the candidate queue for approval.
 
 Today, `.brain/` is the durable structure and `MEMORY.md` remains the
