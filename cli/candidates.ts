@@ -28,7 +28,7 @@ export interface CandidateRecord {
   text: string;                  // the raw candidate text
   finalText?: string;            // text written to MEMORY.md after approve/edit (may differ from text)
   status: CandidateStatus;
-  source: "claude" | "codex" | "unknown";
+  source: string;
   sessionId?: string;
   firstSeenAt: string;           // ISO timestamp
   lastSeenAt: string;            // ISO timestamp (updated on each re-detection)
@@ -96,7 +96,7 @@ export function ingestCandidates(
   store: CandidateStore,
   texts: string[],
   metadata: {
-    source: "claude" | "codex" | "unknown";
+    source: string;
     sessionId?: string;
     projectRoot?: string;
   }

@@ -338,3 +338,32 @@ describe("assemble", () => {
     }
   });
 });
+
+describe("assemble with domain labels", () => {
+  it("formats directives with domain labels when domain is set", () => {
+    const directives = [
+      { ...makeDirective(1, "tdd", "always use TDD"), domain: "work" },
+      { ...makeDirective(2, "sleep", "sleep 8 hours"), domain: "life" },
+    ];
+
+    const budget = allocateBudget(10000, 100, DEFAULT_TASK_WEIGHTS, DEFAULT_CONFIG);
+    const result = assemble({
+      systemPrompt: [{ role: "system", content: "test" }],
+      directives,
+      preferences: [],
+      freshTail: [],
+      taskType: "coding",
+      budget,
+      config: DEFAULT_CONFIG,
+      degraded: false,
+      dagNodes: [],
+    });
+
+    const directiveMsg = result.messages.find((m) =>
+      m.content.includes("squeeze-directives")
+    );
+    expect(directiveMsg).toBeDefined();
+    expect(directiveMsg!.content).toContain("[work]");
+    expect(directiveMsg!.content).toContain("[life]");
+  });
+});

@@ -124,6 +124,25 @@ export function assemble(input: AssemblerInput): AssembledContext {
 // ── Formatting helpers ───────────────────────────────────────────
 
 function formatDirectives(directives: DirectiveRecord[]): string {
+  const hasDomains = directives.some((d) => d.domain && d.domain !== "_flat");
+
+  if (hasDomains) {
+    const byDomain = new Map<string, DirectiveRecord[]>();
+    for (const d of directives) {
+      const domain = d.domain ?? "general";
+      if (!byDomain.has(domain)) byDomain.set(domain, []);
+      byDomain.get(domain)!.push(d);
+    }
+    const sections: string[] = [];
+    for (const [domain, items] of [...byDomain.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      sections.push(`[${domain}]`);
+      for (const d of items) {
+        sections.push(`- (${formatAge(d.createdAt)}) [${d.key}]: ${d.value}`);
+      }
+    }
+    return `<squeeze-directives>\n${sections.join("\n")}\n</squeeze-directives>`;
+  }
+
   const lines = directives.map(
     (d) => `- (${formatAge(d.createdAt)}) [${d.key}]: ${d.value}`
   );

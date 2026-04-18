@@ -10,7 +10,7 @@ import {
 } from "fs";
 import { createHash, randomUUID } from "crypto";
 import { homedir } from "os";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import { classify } from "../src/triage/classifier.js";
 import { persistDirectives } from "../src/storage/directives.js";
 import { Level } from "../src/types.js";
@@ -37,6 +37,7 @@ import { maybeReflect } from "./llm-reflect.js";
 import { OutcomeStore } from "../src/storage/outcomes.js";
 import { buildGrowthOneLiner, detectChinese } from "../src/growth/one-liner.js";
 import type { SessionStats } from "../src/types.js";
+import { autoCreateDomains, loadDomainProfiles, routeToDomain, countDirectivesPerDomain, tokenize, stem } from "../src/triage/domain-router.js";
 
 const STALE_TAIL_COUNT = 20;
 const MIN_COMPRESS_CHARS = 300;
@@ -138,6 +139,76 @@ interface SchemaWriteResult {
   candidates: string[];
 }
 
+// ── Domain memory types and helpers ──────────────────────────────
+
+/**
+ * Represents a resolved memory file path with its domain label.
+ * domain is "work", "life", etc. for domain files, or "_flat" for legacy MEMORY.md.
+ */
+export interface DomainMemoryPath {
+  domain: string; // "work", "life", or "_flat" for legacy
+  path: string;   // absolute path to .md file
+}
+
+/**
+ * Resolve memory file paths for a project.
+ * - If memory/ dir exists with .md files, return those sorted alphabetically.
+ * - If memory/ doesn't exist, fall back to MEMORY.md as { domain: "_flat" }.
+ * - Returns empty array if nothing exists.
+ */
+export function resolveMemoryPaths(projectRoot: string): DomainMemoryPath[] {
+  const memoryDir = join(projectRoot, "memory");
+
+  if (existsSync(memoryDir)) {
+    const files = readdirSync(memoryDir)
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+
+    return files.map((f) => ({
+      domain: basename(f, ".md"),
+      path: join(memoryDir, f),
+    }));
+  }
+
+  const flatPath = join(projectRoot, "MEMORY.md");
+  if (existsSync(flatPath)) {
+    return [{ domain: "_flat", path: flatPath }];
+  }
+
+  return [];
+}
+
+/**
+ * Generate MEMORY.md shim from domain files in memory/*.md.
+ * Merges all domain files alphabetically with an auto-generated header.
+ * Atomic write via tmp file + rename.
+ */
+export function generateMemoryShim(projectRoot: string): void {
+  const memoryDir = join(projectRoot, "memory");
+  if (!existsSync(memoryDir)) return;
+
+  const files = readdirSync(memoryDir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+
+  if (files.length === 0) return;
+
+  const parts: string[] = [
+    "<!-- Auto-generated from memory/*.md — edit domain files directly -->",
+  ];
+
+  for (const f of files) {
+    const content = readFileSync(join(memoryDir, f), "utf8");
+    parts.push(content.trimEnd());
+  }
+
+  const merged = parts.join("\n\n") + "\n";
+  const outputPath = join(projectRoot, "MEMORY.md");
+  const tmpPath = outputPath + ".tmp";
+  writeFileSync(tmpPath, merged, "utf8");
+  renameSync(tmpPath, outputPath);
+}
+
 const MEMORY_CANDIDATE_PATTERNS = [
   // EN: recommendations, requirements, complaints, corrections
   /\b(should|shouldn't|needs? to|must not|too much|too many|reduce|improve|fix|wrong)\b/i,
@@ -158,10 +229,11 @@ interface NormalizedContent {
 }
 
 export interface WriteMetadata {
-  source: "claude" | "codex";
+  source: string;
   sessionId?: string;
   logPath?: string;
   guardSource?: "compress" | "mcp" | "candidates";
+  targetDomain?: string;  // Skip auto-routing, write to this domain directly
 }
 
 export function extractEventTime(text: string, fallback: string): string {
@@ -567,6 +639,7 @@ export function appendDirectivesToMemory(
   const cleaned = directiveTexts
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
+    .filter((text) => !isRant(text))
     .filter((text) =>
       evaluateInjectionGuard(
         projectRoot,
@@ -578,6 +651,17 @@ export function appendDirectivesToMemory(
     );
   if (cleaned.length === 0) return 0;
 
+  // Domain mode: route to individual domain files
+  // Also enters domain mode when targetDomain is explicitly specified.
+  const memoryDir = join(projectRoot, "memory");
+  if (
+    metadata?.targetDomain ||
+    (existsSync(memoryDir) && readdirSync(memoryDir).some((f) => f.endsWith(".md")))
+  ) {
+    return writeToDomains(cleaned, projectRoot, metadata);
+  }
+
+  // Legacy flat MEMORY.md path
   // The whole read-dedup-write sequence must run under a lock. Without the
   // lock, two concurrent writers each read the same "existing" snapshot,
   // both decide their directives are new, and the second writer's rename
@@ -598,6 +682,42 @@ export function appendDirectivesToMemory(
     );
     return performDirectiveWrite(cleaned, memoryPath, metadata);
   }
+}
+
+function writeToDomains(directives: string[], projectRoot: string, metadata?: WriteMetadata): number {
+  // If targetDomain specified, bypass routing
+  if (metadata?.targetDomain) {
+    const domainPath = join(projectRoot, "memory", `${metadata.targetDomain}.md`);
+    try {
+      return withLock(domainPath, () => performDirectiveWrite(directives, domainPath, metadata));
+    } catch (err) {
+      process.stderr.write(`[brain] warning: ${metadata.targetDomain}.md lock unavailable. Writing without lock.\n`);
+      return performDirectiveWrite(directives, domainPath, metadata);
+    }
+  }
+
+  const profiles = loadDomainProfiles(projectRoot);
+  const counts = countDirectivesPerDomain(projectRoot);
+  let written = 0;
+
+  const routed = new Map<string, string[]>();
+  for (const d of directives) {
+    const domain = routeToDomain(d, profiles, counts) ?? "general";
+    if (!routed.has(domain)) routed.set(domain, []);
+    routed.get(domain)!.push(d);
+  }
+
+  for (const [domain, items] of routed) {
+    const domainPath = join(projectRoot, "memory", `${domain}.md`);
+    try {
+      const w = withLock(domainPath, () => performDirectiveWrite(items, domainPath, metadata));
+      written += w;
+    } catch (err) {
+      process.stderr.write(`[brain] warning: ${domain}.md lock unavailable. Writing without lock.\n`);
+      written += performDirectiveWrite(items, domainPath, metadata);
+    }
+  }
+  return written;
 }
 
 /**
@@ -621,15 +741,38 @@ export function retireDirective(
 ): number {
   const needle = matchText.trim().toLowerCase();
   if (needle.length === 0) return 0;
-  if (!existsSync(memoryPath)) return 0;
 
+  const projectRoot = dirname(memoryPath);
+  const memoryDir = join(projectRoot, "memory");
+
+  // Domain mode: retire from all domain files, then regenerate shim
+  if (existsSync(memoryDir)) {
+    const files = readdirSync(memoryDir).filter((f) => f.endsWith(".md"));
+    let totalRetired = 0;
+    for (const f of files) {
+      const domainPath = join(memoryDir, f);
+      totalRetired += retireFromFile(domainPath, needle);
+    }
+    if (totalRetired > 0) {
+      generateMemoryShim(projectRoot);
+    }
+    return totalRetired;
+  }
+
+  // Legacy flat mode
+  if (!existsSync(memoryPath)) return 0;
+  return retireFromFile(memoryPath, needle);
+}
+
+function retireFromFile(filePath: string, needle: string): number {
+  if (!existsSync(filePath)) return 0;
   try {
-    return withLock(memoryPath, () => performRetireDirective(memoryPath, needle));
+    return withLock(filePath, () => performRetireDirective(filePath, needle));
   } catch (err) {
     process.stderr.write(
-      `[brain] warning: MEMORY.md lock unavailable (${(err as Error).message}). Retiring without lock.\n`
+      `[brain] warning: ${basename(filePath)} lock unavailable (${(err as Error).message}). Retiring without lock.\n`
     );
-    return performRetireDirective(memoryPath, needle);
+    return performRetireDirective(filePath, needle);
   }
 }
 
@@ -696,6 +839,87 @@ function performRetireDirective(memoryPath: string, needle: string): number {
   return retired.length;
 }
 
+// ── Storage quality helpers ────────────────────────────────────────────────────
+
+/**
+ * Tokenize text for semantic dedup — like domain-router's tokenize but also
+ * preserves digit sequences (including single digits) so that directives that
+ * differ only by number ("rule 1" vs "rule 2") are NOT treated as duplicates.
+ */
+function tokenizeForSemanticDedup(text: string): string[] {
+  const words = tokenize(text); // standard tokens (length > 1, no stops)
+  const nums = text.match(/\d+/g) ?? [];
+  return [...words, ...nums];
+}
+
+/**
+ * Check if a new directive is semantically similar to any existing directive.
+ * Returns true if >80% of the new directive's keywords appear in any single
+ * existing directive (after stemming). Requires at least 2 meaningful keywords
+ * to avoid single-token false positives.
+ */
+export function isSemanticDuplicate(newText: string, existingTexts: Iterable<string>): boolean {
+  const newTokens = new Set(tokenizeForSemanticDedup(newText).map(stem));
+  if (newTokens.size < 2) return false;
+
+  for (const existing of existingTexts) {
+    const existingTokens = new Set(tokenizeForSemanticDedup(existing).map(stem));
+    let overlap = 0;
+    for (const t of newTokens) {
+      if (existingTokens.has(t)) overlap++;
+    }
+    if (overlap / newTokens.size > 0.8) return true;
+  }
+  return false;
+}
+
+const ONE_OFF_PATTERNS = [
+  /^remove\b/i,
+  /^clean\s*up\b/i,
+  /^delete\b/i,
+  /^fix\b/i,
+  /^rename\b/i,
+  /^migrate\b/i,
+  /^update\b.*\bto\b/i,
+  /^move\b/i,
+  /^replace\b.*\bwith\b/i,
+  /^get rid of\b/i,
+  /^stop\s+using\b/i,
+];
+
+/**
+ * Detect imperative one-off tasks that are not durable rules.
+ * When detected, the directive gets a [one-off] tag so consolidate
+ * can prioritize retiring it.
+ */
+export function isOneOffTask(text: string): boolean {
+  return ONE_OFF_PATTERNS.some((p) => p.test(text.trim()));
+}
+
+const RANT_SIGNALS = [
+  /[？?]{2,}/,           // multiple question marks
+  /[！!]{2,}/,           // multiple exclamation marks
+  /怎麼還在/,            // "how is this still here"
+  /該不會/,              // "don't tell me..."
+  /搞什麼/,              // "what the..."
+  /為什麼又/,            // "why again..."
+  /到底是/,              // "what on earth..."
+  /wtf/i,
+  /what the hell/i,
+  /are you kidding/i,
+  /seriously\?/i,
+];
+
+/**
+ * Detect if text is an emotional rant rather than a durable directive.
+ * Requires at least 2 rant signals to avoid false positives on legitimate
+ * directives that happen to contain a question mark.
+ */
+export function isRant(text: string): boolean {
+  const signals = RANT_SIGNALS.filter((p) => p.test(text));
+  return signals.length >= 2;
+}
+
 function performDirectiveWrite(
   cleaned: string[],
   memoryPath: string,
@@ -707,7 +931,9 @@ function performDirectiveWrite(
   }
 
   const existingDirectives = parseExistingDirectives(existing);
-  const newDirectives = cleaned.filter((d) => !existingDirectives.has(d));
+  const newDirectives = cleaned
+    .filter((d) => !existingDirectives.has(d))
+    .filter((d) => !isSemanticDuplicate(d, existingDirectives));
   if (newDirectives.length === 0) return 0;
 
   const tmpPath = memoryPath + ".tmp";
@@ -717,15 +943,47 @@ function performDirectiveWrite(
   // Heading format is "## oh-my-brain directives (YYYY-MM-DD) [source:...]".
   // The audit parser and parseExistingDirectives also accept the legacy
   // "squeeze-claw directives" prefix so files from v0.1 keep working.
-  const section = [
-    "",
-    `## oh-my-brain directives (${timestamp}) [source:${sourceTag}${sessionTag}]`,
-    "",
-    ...newDirectives.map((d) => `- [${sourceTag}${sessionTag ? ` ${metadata!.sessionId}` : ""}] ${d}`),
-    "",
-  ].join("\n");
+  const bullets = newDirectives.map((d) => {
+    const tag = isOneOffTask(d)
+      ? `${sourceTag} one-off${sessionTag ? ` ${metadata!.sessionId}` : ""}`
+      : `${sourceTag}${sessionTag ? ` ${metadata!.sessionId}` : ""}`;
+    return `- [${tag}] ${d}`;
+  });
 
-  writeFileSync(tmpPath, existing + section);
+  // Try to merge into existing section with same date+source
+  const sectionPrefix = `## oh-my-brain directives (${timestamp}) [source:${sourceTag}`;
+  const lines = existing.split("\n");
+  let mergeIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith(sectionPrefix)) {
+      // Found matching section. Find the last bullet line in this section.
+      let lastBullet = i;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].startsWith("## ")) break; // next section
+        if (lines[j].startsWith("- ")) lastBullet = j;
+      }
+      mergeIndex = lastBullet;
+      break;
+    }
+  }
+
+  if (mergeIndex >= 0) {
+    // Merge: insert new bullets after the last bullet in the matching section
+    lines.splice(mergeIndex + 1, 0, ...bullets);
+    writeFileSync(tmpPath, lines.join("\n"));
+  } else {
+    // No matching section: append new section
+    const section = [
+      "",
+      `## oh-my-brain directives (${timestamp}) [source:${sourceTag}${sessionTag}]`,
+      "",
+      ...bullets,
+      "",
+    ].join("\n");
+    writeFileSync(tmpPath, existing + section);
+  }
+
   renameSync(tmpPath, memoryPath);
   return newDirectives.length;
 }
@@ -1091,6 +1349,11 @@ export async function main() {
       ? (((originalChars - compressedChars) / originalChars) * 100).toFixed(1)
       : "0.0";
 
+  const memoryDir = join(cwd, "memory");
+  if (!existsSync(memoryDir)) {
+    autoCreateDomains(cwd);
+  }
+  // Phase 1: write path unchanged — still writes to flat MEMORY.md.
   const memoryPath = join(cwd, "MEMORY.md");
   const sessionId = sessionPath.split("/").pop()?.replace(".jsonl", "") ?? sessionPath;
   const directivesWritten = await writeDirectivesToMemory(processed, memoryPath, {
@@ -1141,6 +1404,7 @@ export async function main() {
     memoryCandidates,
   });
   writeLatestAudit(cwd);
+  generateMemoryShim(cwd);
 
   if (savedTokens > 0) {
     process.stderr.write(

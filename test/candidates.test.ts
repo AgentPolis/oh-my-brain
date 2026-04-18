@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -14,6 +14,7 @@ import {
   saveCandidateStore,
 } from "../cli/candidates.js";
 import { runCandidatesCli } from "../cli/candidates-cli.js";
+import { applyPromoteCandidate } from "../cli/actions.js";
 
 describe("candidateId", () => {
   it("is stable across leading/trailing whitespace", () => {
@@ -379,5 +380,56 @@ describe("runCandidatesCli", () => {
     const code = await runCandidatesCli(["node", "cli", "nonsense"], tmpDir);
     expect(code).toBe(1);
     expect(stderr).toContain("Unknown command");
+  });
+
+  it("approve with --domain writes to specified domain file", async () => {
+    mkdirSync(join(tmpDir, "memory"));
+    writeFileSync(join(tmpDir, "memory", "work.md"), "## work\n\n- [claude] use TDD\n");
+    writeFileSync(join(tmpDir, "memory", "investing.md"), "## investing\n");
+
+    seed(["portfolio rebalancing tip"]);
+    const store = loadCandidateStore(tmpDir);
+    const [record] = Object.values(store.candidates);
+
+    const code = await runCandidatesCli(
+      ["node", "cli", "approve", record.id.slice(0, 6), "--domain", "work"],
+      tmpDir
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain("memory/work.md");
+
+    const workContent = readFileSync(join(tmpDir, "memory", "work.md"), "utf8");
+    expect(workContent).toContain("portfolio rebalancing tip");
+    const investContent = readFileSync(join(tmpDir, "memory", "investing.md"), "utf8");
+    expect(investContent).not.toContain("portfolio rebalancing tip");
+  });
+});
+
+describe("approve with --domain (applyPromoteCandidate)", () => {
+  it("writes approved directive to specified domain file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-approve-domain-"));
+    mkdirSync(join(dir, "memory"));
+    writeFileSync(join(dir, "memory", "work.md"), "## work\n\n- [claude] use TDD\n");
+    writeFileSync(join(dir, "memory", "investing.md"), "## investing\n");
+    mkdirSync(join(dir, ".squeeze"), { recursive: true });
+
+    const store = loadCandidateStore(dir);
+    ingestCandidates(store, ["portfolio rebalancing tip"], {
+      source: "claude", sessionId: "test",
+    });
+    saveCandidateStore(dir, store);
+    const candidateIdKey = Object.keys(store.candidates)[0];
+
+    const action = await applyPromoteCandidate(
+      { projectRoot: dir, source: "cli", domain: "work" },
+      { candidateId: candidateIdKey }
+    );
+    expect(action).not.toBeNull();
+    expect(action!.payload.written).toBe(true);
+
+    const workContent = readFileSync(join(dir, "memory", "work.md"), "utf8");
+    expect(workContent).toContain("portfolio rebalancing tip");
+    const investContent = readFileSync(join(dir, "memory", "investing.md"), "utf8");
+    expect(investContent).not.toContain("portfolio rebalancing tip");
   });
 });
