@@ -24,14 +24,15 @@ export class DirectiveStore {
     sourceMsgId: number | null,
     confirmedByUser = false,
     evidence?: { text?: string; turn?: number },
-    eventTime?: string
+    eventTime?: string,
+    domain?: string,
   ): Promise<number> {
     return this.db.transaction(async (tx) => {
       const rows = await tx.query<{ id: number }>(
         `INSERT INTO directives (
-           key, value, source_msg_id, confirmed_by_user, evidence_text, evidence_turn, event_time
+           key, value, source_msg_id, confirmed_by_user, evidence_text, evidence_turn, event_time, domain
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
         [
           key,
@@ -41,6 +42,7 @@ export class DirectiveStore {
           evidence?.text ?? null,
           evidence?.turn ?? null,
           eventTime ?? new Date().toISOString(),
+          domain ?? null,
         ],
       );
 
@@ -143,6 +145,7 @@ interface RawDirectiveRow {
   last_referenced_at: string | Date | null;
   superseded_by: number | null;
   superseded_at: string | Date | null;
+  domain?: string | null;
 }
 
 interface RawPreferenceRow {
@@ -179,6 +182,7 @@ function toDirectiveRecord(row: RawDirectiveRow): DirectiveRecord {
     lastReferencedAt: tsToString(row.last_referenced_at),
     supersededBy: row.superseded_by,
     supersededAt: tsToString(row.superseded_at),
+    domain: row.domain ?? undefined,
   };
 }
 
