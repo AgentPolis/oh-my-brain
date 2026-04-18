@@ -475,6 +475,22 @@ running in your Node.js process. Zero setup, zero Docker, zero
 cloud. But when you need to scale, change one connection string
 to migrate to Supabase or any managed PostgreSQL.
 
+### Domain-Based Memory (v0.8)
+
+oh-my-brain organizes memory by **domains** — the way human brains naturally
+compartmentalize knowledge (Tulving 1973). Instead of a flat file, memories
+live in `memory/work.md`, `memory/investing.md`, etc.
+
+- Agent auto-creates domains from existing MEMORY.md on first run
+- New directives auto-route to the matching domain via keyword matching
+- Sessions only load relevant domains (work session → work memories)
+- `MEMORY.md` remains as an auto-generated compatibility shim
+- MCP tools support `domain` parameter for filtered read/write
+
+**Why domains, not tags:** Files > metadata. You can see domains in your
+file explorer, edit them in any text editor, and delete a domain by
+deleting a file. No query language needed.
+
 - **Knowledge Graph** — Every memory (event, directive, person,
   habit, schema) is a node. Every relationship is an edge.
   Multi-hop traversal finds connections you didn't know existed.

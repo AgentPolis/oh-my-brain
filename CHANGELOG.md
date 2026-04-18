@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.8.0 — Domain-Based Memory
+
+### Added
+- `memory/` folder — agent auto-creates domain files from existing MEMORY.md
+- Keyword-based domain routing with tie-breaking rules
+- Selective injection — only relevant domains enter context
+- `brain_domains` MCP tool — list available domains with stats
+- `domain` parameter on `brain_remember` and `brain_recall` MCP tools
+- `brain-candidates approve --domain` flag
+- Domain size reporting and rebalance suggestions in brain-audit
+- Domain-aware LongMemEval eval scenarios
+- Cognitive science foundation (Tulving 1973, Linville 1987)
+
+### Changed
+- `MEMORY.md` becomes auto-generated shim (backward compatible)
+- Per-file locking replaces single MEMORY.md lock
+- Assembler formats directives with domain labels
+
+### Migration
+- Automatic: on first compress run, existing MEMORY.md directives are
+  analyzed and distributed into domain files
+- `MEMORY.md` continues to work as before for agents that don't
+  understand the folder structure
+
 ## [0.7.0] - 2026-04-15
 
 **PGLite + Knowledge Graph: enterprise-grade architecture.**
