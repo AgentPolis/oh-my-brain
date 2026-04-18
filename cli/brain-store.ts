@@ -468,6 +468,39 @@ export function refreshMemoryMd(projectRoot: string, cwd?: string): void {
   renameSync(tmp, outputPath);
 }
 
+// ── Noise Filter (shared by migrate and brainRemember) ────────────
+
+/**
+ * Returns true if text looks like noise rather than a genuine directive.
+ * Used by both migrate and real-time brainRemember to prevent
+ * conversation fragments, prompts, and file paths from polluting memory.
+ */
+export function isNoise(text: string): boolean {
+  if (text.length < 10) return true;
+  // IDE metadata
+  if (text.includes("<ide_opened_file>") || text.includes("</ide_")) return true;
+  // System/extractor prompts
+  if (text.includes("You are analyzing") || text.includes("Extract the following")) return true;
+  if (text.includes("JSON format") && text.length > 100) return true;
+  // Multi-line conversation dumps
+  if (text.includes("\n") && text.length > 200) return true;
+  // Numbered list items (conversation, not directives)
+  if (/^[0-9]+\.\s/.test(text)) return true;
+  // Chinese conversation fragments
+  if (/^(都要|你認為|怎麼|我覺得|看看|確認一下|剛那|對了|另外|好，|是的|所以|為什麼|能補|最關鍵)/.test(text)) return true;
+  // HTML/XML tags
+  if (/^<[a-z_]/.test(text)) return true;
+  // One-time task instructions
+  if (/^(全部做|remove all squeeze|砍掉)/.test(text)) return true;
+  // File paths as standalone content
+  if (/^\/Users\//.test(text)) return true;
+  // Contains file paths inline (likely conversation about files)
+  if (/\/Users\/\w+\//.test(text) && text.length > 100) return true;
+  // Too many sentences (conversation paragraph, not a rule)
+  if ((text.match(/[.。！？!?]/g) || []).length >= 3) return true;
+  return false;
+}
+
 // ── brain_remember Routing ────────────────────────────────────────
 
 export interface RouteResult {
@@ -532,6 +565,11 @@ export function brainRemember(
   const paths = resolveBrainPaths(projectRoot);
   if (!existsSync(paths.root)) {
     initBrainDir(projectRoot);
+  }
+
+  // Filter noise before routing
+  if (isNoise(text)) {
+    return { layer: "identity", target: "identity", written: false, confidence: 0, needsReview: false };
   }
 
   const route = routeDirective(
@@ -626,26 +664,8 @@ export function migrateToBrain(projectRoot: string): {
         let clean = m[1].replace(/^\[[^\]]*\]\s*/, "").trim();
         if (clean.length === 0) continue;
 
-        // Filter out noise:
-        // - IDE metadata
-        if (clean.includes("<ide_opened_file>") || clean.includes("</ide_")) continue;
-        // - System/extractor prompts leaked into memory
-        if (clean.includes("You are analyzing") || clean.includes("Extract the following")) continue;
-        if (clean.includes("JSON format") && clean.length > 100) continue;
-        // - One-off conversation fragments (too short or starts with numbers/bullets)
-        if (clean.length < 10) continue;
-        // - Multi-line conversation dumps (contains line breaks)
-        if (clean.includes("\n") && clean.length > 200) continue;
-        // - User's raw conversation (starts with Chinese question patterns or numbered lists)
-        if (/^[0-9]+\.\s/.test(clean)) continue;
-        // - Contains conversation fragment markers
-        if (/^(都要|你認為|怎麼|我覺得|看看|確認一下|剛那|對了|另外|好，|是的)/.test(clean)) continue;
-        // - HTML/XML tags
-        if (/^<[a-z_]/.test(clean)) continue;
-        // - One-time task instructions
-        if (/^(全部做|remove all squeeze|砍掉)/.test(clean)) continue;
-        // - File paths as standalone directives
-        if (/^\/Users\//.test(clean)) continue;
+        // Filter out noise (shared logic with brainRemember)
+        if (isNoise(clean)) continue;
 
         directives.push(clean);
       }
