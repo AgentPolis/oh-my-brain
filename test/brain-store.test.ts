@@ -8,6 +8,7 @@ import {
   resolveBrainPaths,
   appendToIdentity,
   appendToGoals,
+  appendToCoding,
   appendToDomain,
   writeProject,
   appendHandoff,
@@ -65,6 +66,14 @@ describe("initBrainDir", () => {
     expect(scope.overlayGlobalPreferences).toBe(false);
     expect(scope.projectRoot).toBe(tmpDir);
   });
+
+  it("recreates scope.json if missing", () => {
+    const paths = initBrainDir(tmpDir);
+    rmSync(paths.scope, { force: true });
+    const scope = loadScopeConfig(tmpDir);
+    expect(scope.projectRoot).toBe(tmpDir);
+    expect(existsSync(paths.scope)).toBe(true);
+  });
 });
 
 describe("hasBrainDir", () => {
@@ -102,6 +111,15 @@ describe("Goals", () => {
     appendToGoals(paths, "oh-my-brain: become the standard for AI memory");
     const content = readFileSync(paths.goals, "utf8");
     expect(content).toContain("oh-my-brain: become the standard");
+  });
+});
+
+describe("Coding", () => {
+  it("appends to coding.md", () => {
+    const paths = initBrainDir(tmpDir);
+    appendToCoding(paths, "always run tests before committing");
+    const content = readFileSync(paths.coding, "utf8");
+    expect(content).toContain("always run tests before committing");
   });
 });
 
@@ -206,6 +224,24 @@ describe("routeDirective", () => {
     const result = routeDirective("開源 projects use Apache-2.0 license", paths);
     expect(result.layer).toBe("domain");
   });
+
+  it("routes coding rules to coding", () => {
+    const paths = initBrainDir(tmpDir);
+    const result = routeDirective("always run tests before committing", paths);
+    expect(result.layer).toBe("coding");
+  });
+
+  it("routes project positioning and benchmark notes to project when a project is active", () => {
+    const paths = initBrainDir(tmpDir);
+    const result = routeDirective(
+      "README positioning and benchmark wording should stay conservative",
+      paths,
+      "work",
+      "oh-my-brain",
+    );
+    expect(result.layer).toBe("project");
+    expect(result.target).toBe("oh-my-brain");
+  });
 });
 
 describe("brainRemember", () => {
@@ -219,12 +255,40 @@ describe("brainRemember", () => {
     const memoryMd = readFileSync(join(tmpDir, "MEMORY.md"), "utf8");
     expect(memoryMd).toContain("use Chinese for communication");
   });
+
+  it("writes coding rules to coding.md", () => {
+    initBrainDir(tmpDir);
+    const result = brainRemember(tmpDir, "always run tests before committing");
+    expect(result.layer).toBe("coding");
+    expect(result.written).toBe(true);
+
+    const coding = readFileSync(join(tmpDir, ".brain", "coding.md"), "utf8");
+    expect(coding).toContain("always run tests before committing");
+  });
+
+  it("writes project-scoped README and benchmark notes into the active project", () => {
+    initBrainDir(tmpDir);
+    const result = brainRemember(
+      tmpDir,
+      "README positioning and benchmark wording should stay conservative",
+      {
+        project: "oh-my-brain",
+        cwd: join(tmpDir, "oh-my-brain"),
+      },
+    );
+    expect(result.layer).toBe("project");
+    expect(result.written).toBe(true);
+
+    const projectFile = readFileSync(join(tmpDir, ".brain", "projects", "oh-my-brain.md"), "utf8");
+    expect(projectFile).toContain("README positioning and benchmark wording should stay conservative");
+  });
 });
 
 describe("assembleBrainToMemory", () => {
   it("produces stable + dynamic sections", () => {
     const paths = initBrainDir(tmpDir);
     appendToIdentity(paths, "communicate in Chinese");
+    appendToCoding(paths, "run tests before committing");
     appendToGoals(paths, "build the best AI memory");
     appendToDomain(paths, "work", "ship fast, ship quality");
     writeProject(paths, "my-project", "# my-project\ndomain: work\n\n## 現況\nv1.0\n");
@@ -232,6 +296,7 @@ describe("assembleBrainToMemory", () => {
     const output = assembleBrainToMemory(tmpDir);
     expect(output).toContain("auto-assembled by oh-my-brain");
     expect(output).toContain("communicate in Chinese");
+    expect(output).toContain("run tests before committing");
     expect(output).toContain("build the best AI memory");
     // Stable section comes before dynamic
     const identityIdx = output.indexOf("communicate in Chinese");
@@ -308,6 +373,12 @@ describe("detectProject", () => {
     const proj = detectProject(paths, "/Users/test/oh-my-brain/src");
     expect(proj).toBe("oh-my-brain");
   });
+
+  it("falls back to repo root name before a project file exists", () => {
+    const paths = initBrainDir(tmpDir);
+    const proj = detectProject(paths, tmpDir);
+    expect(proj).toBe(tmpDir.split("/").at(-1));
+  });
 });
 
 describe("migrateToBrain", () => {
@@ -333,7 +404,8 @@ describe("migrateToBrain", () => {
     const paths = resolveBrainPaths(tmpDir);
     const identity = readFileSync(paths.identity, "utf8");
     expect(identity).toContain("communicate in Chinese");
-    expect(identity).toContain("separate LLM generation from validation");
+    const coding = readFileSync(paths.coding, "utf8");
+    expect(coding).toContain("separate LLM generation from validation");
 
     // Check MEMORY.md was refreshed
     const memoryMd = readFileSync(join(tmpDir, "MEMORY.md"), "utf8");
@@ -355,6 +427,22 @@ describe("migrateToBrain", () => {
     expect(identity).not.toContain("8db14531");
     expect(identity).toContain("some directive");
   });
+
+  it("migrates coding rules into coding.md", () => {
+    mkdirSync(join(tmpDir, "memory"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "memory", "general.md"),
+      "- [claude consolidated] always run tests before committing\n",
+      "utf8",
+    );
+
+    const stats = migrateToBrain(tmpDir);
+    expect(stats.coding).toBe(1);
+
+    const paths = resolveBrainPaths(tmpDir);
+    const coding = readFileSync(paths.coding, "utf8");
+    expect(coding).toContain("always run tests before committing");
+  });
 });
 
 describe("auditBrain", () => {
@@ -362,6 +450,7 @@ describe("auditBrain", () => {
     const paths = initBrainDir(tmpDir);
     appendToIdentity(paths, "rule 1");
     appendToIdentity(paths, "rule 2");
+    appendToCoding(paths, "coding rule");
     appendToGoals(paths, "goal 1");
     appendToDomain(paths, "work", "work rule");
     writeProject(paths, "proj", "# proj\n\n## Handoff Log\n- 2026-04-18: did stuff\n");
@@ -370,6 +459,7 @@ describe("auditBrain", () => {
     const audit = auditBrain(tmpDir);
     expect(audit.hasBrain).toBe(true);
     expect(audit.identityLines).toBe(2);
+    expect(audit.codingLines).toBe(1);
     expect(audit.goalsLines).toBe(1);
     expect(audit.domainCount).toBe(1);
     expect(audit.projectCount).toBe(1);
@@ -388,6 +478,7 @@ describe("export / import", () => {
   it("round-trips brain content", () => {
     const paths = initBrainDir(tmpDir);
     appendToIdentity(paths, "exported rule");
+    appendToCoding(paths, "exported coding rule");
     appendToGoals(paths, "exported goal");
     appendToDomain(paths, "work", "work rule");
     writeProject(paths, "proj", "# proj\ndomain: work\n");
@@ -404,6 +495,8 @@ describe("export / import", () => {
       const paths2 = resolveBrainPaths(tmpDir2);
       const identity2 = readFileSync(paths2.identity, "utf8");
       expect(identity2).toContain("exported rule");
+      const coding2 = readFileSync(paths2.coding, "utf8");
+      expect(coding2).toContain("exported coding rule");
       const scope2 = loadScopeConfig(tmpDir2);
       expect(scope2.localFirst).toBe(true);
 
@@ -433,6 +526,13 @@ describe("routing confidence", () => {
   it("returns high confidence for strong identity signal", () => {
     const paths = initBrainDir(tmpDir);
     const result = routeDirective("always use Chinese for communication", paths);
+    expect(result.confidence).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it("returns high confidence for coding rules", () => {
+    const paths = initBrainDir(tmpDir);
+    const result = routeDirective("always run tests before committing", paths);
+    expect(result.layer).toBe("coding");
     expect(result.confidence).toBeGreaterThanOrEqual(0.8);
   });
 });

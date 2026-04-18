@@ -31,17 +31,18 @@ import {
   cpSync,
   lstatSync,
 } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, dirname, resolve } from "node:path";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type BrainLayer = "identity" | "goals" | "domain" | "project";
+export type BrainLayer = "identity" | "goals" | "domain" | "project" | "coding";
 
 export interface BrainPaths {
   root: string;           // .brain/
   scope: string;          // .brain/scope.json
   identity: string;       // .brain/identity.md
   goals: string;          // .brain/goals.md
+  coding: string;         // .brain/coding.md
   domainsDir: string;     // .brain/domains/
   projectsDir: string;    // .brain/projects/
   episodesDir: string;    // .brain/episodes/
@@ -87,6 +88,7 @@ export function resolveBrainPaths(projectRoot: string): BrainPaths {
     scope: join(root, "scope.json"),
     identity: join(root, "identity.md"),
     goals: join(root, "goals.md"),
+    coding: join(root, "coding.md"),
     domainsDir: join(root, "domains"),
     projectsDir: join(root, "projects"),
     episodesDir: join(root, "episodes"),
@@ -115,6 +117,9 @@ export function initBrainDir(projectRoot: string): BrainPaths {
   }
   if (!existsSync(paths.goals)) {
     writeFileSync(paths.goals, "## Goals\n\n", "utf8");
+  }
+  if (!existsSync(paths.coding)) {
+    writeFileSync(paths.coding, "## Coding\n\n", "utf8");
   }
   if (!existsSync(paths.scope)) {
     writeFileSync(
@@ -165,20 +170,25 @@ export function defaultScopeConfig(projectRoot: string): BrainScopeConfig {
 
 export function loadScopeConfig(projectRoot: string): BrainScopeConfig {
   const paths = resolveBrainPaths(projectRoot);
+  const fallback = defaultScopeConfig(projectRoot);
   if (!existsSync(paths.scope)) {
-    return defaultScopeConfig(projectRoot);
+    saveScopeConfig(projectRoot, fallback);
+    return fallback;
   }
   try {
     const parsed = JSON.parse(readFileSync(paths.scope, "utf8")) as Partial<BrainScopeConfig>;
-    return {
+    const config = {
       kind: "project",
       projectRoot,
       localFirst: true,
       overlayGlobalPreferences: parsed.overlayGlobalPreferences === true,
       globalBrainRoot: typeof parsed.globalBrainRoot === "string" ? parsed.globalBrainRoot : undefined,
     };
+    saveScopeConfig(projectRoot, config);
+    return config;
   } catch {
-    return defaultScopeConfig(projectRoot);
+    saveScopeConfig(projectRoot, fallback);
+    return fallback;
   }
 }
 
@@ -253,6 +263,13 @@ export function appendToGoals(paths: BrainPaths, line: string): void {
   const trimmed = line.trim();
   if (content.includes(trimmed)) return;
   atomicWrite(paths.goals, content.trimEnd() + "\n- " + trimmed + "\n");
+}
+
+export function appendToCoding(paths: BrainPaths, line: string): void {
+  const content = readBrainFile(paths.coding);
+  const trimmed = line.trim();
+  if (content.includes(trimmed)) return;
+  atomicWrite(paths.coding, content.trimEnd() + "\n- " + trimmed + "\n");
 }
 
 export function writeDomain(paths: BrainPaths, domain: string, content: string): void {
@@ -416,6 +433,14 @@ export function detectProject(paths: BrainPaths, cwd: string): string | null {
   const last = getLastSession(paths);
   if (last?.project) return last.project;
 
+  // Fallback: treat the current repo root as an active project even
+  // before a dedicated .brain/projects/<name>.md file exists.
+  const projectRoot = dirname(paths.root);
+  const resolvedCwd = resolve(cwd);
+  if (resolvedCwd === projectRoot || resolvedCwd.startsWith(projectRoot + "/")) {
+    return basename(projectRoot);
+  }
+
   return null;
 }
 
@@ -423,7 +448,7 @@ export function detectProject(paths: BrainPaths, cwd: string): string | null {
 
 /**
  * Assemble .brain/ contents into MEMORY.md working memory.
- * Stable section (identity + goals) first for KV cache.
+ * Stable section (identity + coding + goals) first for KV cache.
  * Dynamic section (domain + project) based on detected context.
  */
 export function assembleBrainToMemory(
@@ -468,6 +493,12 @@ export function assembleBrainToMemory(
         parts.push("");
       }
     }
+  }
+
+  const coding = readBrainFile(paths.coding).trim();
+  if (coding) {
+    parts.push(coding);
+    parts.push("");
   }
 
   // Goals (always full)
@@ -664,6 +695,13 @@ export function routeDirective(
       return { layer: "project", target: proj, confidence: strength >= 3 ? 0.95 : 0.65 };
     }
   }
+  // Project-scoped work: positioning, progress, handoff, benchmark, release notes
+  if (
+    currentProject &&
+    /(?:handoff|next step|next steps|decision|decided|status|current status|roadmap|milestone|release|launch|benchmark|judge|report|readme|messaging|positioning|product|repo|this project|this repo|session summary|summary|diff|compare|push|shipped|進度|現況|下一步|交接|決策|定位|產品|README|benchmark|judge|報告|這個 repo|這個專案|這輪|這次先)/i.test(text)
+  ) {
+    return { layer: "project", target: currentProject, confidence: strength >= 2 ? 0.86 : 0.72 };
+  }
   // Progress keywords → medium-high (project detected from context, not explicit)
   if (/(?:做到|shipped|進行中|in progress|blocked|branch:|pr #|deploy)/i.test(text)) {
     const target = currentProject ?? projects[0] ?? "default";
@@ -673,6 +711,11 @@ export function routeDirective(
   // Goals: direction, vision → high confidence
   if (/(?:目標是|要成為|vision|goal|aspiration|整體方向|長期|long.?term)/i.test(text)) {
     return { layer: "goals", target: "goals", confidence: strength >= 3 ? 0.9 : 0.62 };
+  }
+
+  // Coding: build/review/test/ship rules that should travel across repos
+  if (/(?:typescript|strict mode|esm|commonjs|vitest|jest|test|tests|commit|committing|code review|refactor|architecture|raw output|validation|llm output|workspace directories|generated files|ship code|branch|pr |pull request|coding|implementation|run tests|before committing|review workflow|workspace clean|codebase)/i.test(text)) {
+    return { layer: "coding", target: "coding", confidence: strength >= 3 ? 0.88 : 0.64 };
   }
 
   // Domain-specific: work patterns → medium confidence
@@ -734,6 +777,10 @@ export function brainRemember(
       appendToDomain(paths, route.target, text);
       written = true;
       break;
+    case "coding":
+      appendToCoding(paths, text);
+      written = true;
+      break;
     case "project": {
       const filePath = join(paths.projectsDir, `${route.target}.md`);
       const content = readBrainFile(filePath);
@@ -767,12 +814,13 @@ export function brainRemember(
 export function migrateToBrain(projectRoot: string): {
   migrated: number;
   identity: number;
+  coding: number;
   domains: number;
   projects: number;
   goals: number;
 } {
   const paths = initBrainDir(projectRoot);
-  const stats = { migrated: 0, identity: 0, domains: 0, projects: 0, goals: 0 };
+  const stats = { migrated: 0, identity: 0, coding: 0, domains: 0, projects: 0, goals: 0 };
 
   // Read all existing directives from memory/ or MEMORY.md
   const memoryDir = join(projectRoot, "memory");
@@ -823,6 +871,10 @@ export function migrateToBrain(projectRoot: string): {
       case "domain":
         appendToDomain(paths, route.target, d);
         stats.domains++;
+        break;
+      case "coding":
+        appendToCoding(paths, d);
+        stats.coding++;
         break;
       case "project":
         const filePath = join(paths.projectsDir, `${route.target}.md`);
@@ -903,6 +955,7 @@ export function migrateToBrain(projectRoot: string): {
 export interface BrainAudit {
   hasBrain: boolean;
   identityLines: number;
+  codingLines: number;
   goalsLines: number;
   domainCount: number;
   domains: string[];
@@ -921,6 +974,7 @@ export function auditBrain(projectRoot: string): BrainAudit {
     return {
       hasBrain: false,
       identityLines: 0,
+      codingLines: 0,
       goalsLines: 0,
       domainCount: 0,
       domains: [],
@@ -933,6 +987,7 @@ export function auditBrain(projectRoot: string): BrainAudit {
   }
 
   const identity = readBrainFile(paths.identity);
+  const coding = readBrainFile(paths.coding);
   const goals = readBrainFile(paths.goals);
   const domains = listDomains(paths);
   const projects = listProjects(paths);
@@ -962,6 +1017,7 @@ export function auditBrain(projectRoot: string): BrainAudit {
   return {
     hasBrain,
     identityLines: identity.split("\n").filter((l) => l.startsWith("- ")).length,
+    codingLines: coding.split("\n").filter((l) => l.startsWith("- ")).length,
     goalsLines: goals.split("\n").filter((l) => l.startsWith("- ")).length,
     domainCount: domains.length,
     domains,
@@ -987,6 +1043,7 @@ export function exportBrain(projectRoot: string): string {
   const bundle: Record<string, string> = {};
   bundle["scope.json"] = readBrainFile(paths.scope);
   bundle["identity.md"] = readBrainFile(paths.identity);
+  bundle["coding.md"] = readBrainFile(paths.coding);
   bundle["goals.md"] = readBrainFile(paths.goals);
 
   for (const d of listDomains(paths)) {

@@ -558,9 +558,8 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "brain_domains",
     description:
-      "List available memory domains with stats. Returns domain names, " +
-      "directive counts, and estimated token sizes. Use this to understand " +
-      "how memory is organized before calling brain_recall with a domain filter.",
+      "List available concrete context files with stats, such as work, life, investing, or learning. " +
+      "Returns names, directive counts, and estimated token sizes.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -621,7 +620,7 @@ const TOOLS: ToolDefinition[] = [
     name: "brain_migrate",
     description:
       "Migrate from v0.8 memory/ format to v2 .brain/ structured format. " +
-      "Classifies existing directives into identity/goals/domain/project layers. " +
+      "Classifies existing directives into concrete layers like identity, coding, goals, work/life context, and project memory. " +
       "One-time operation for upgrading.",
     inputSchema: { type: "object", properties: {} },
   },
@@ -629,7 +628,7 @@ const TOOLS: ToolDefinition[] = [
     name: "brain_audit",
     description:
       "Show a human-readable health report of your .brain/. " +
-      "Counts identity rules, domains, projects, handoff entries, and MEMORY.md token estimate.",
+      "Counts identity rules, coding rules, concrete context files, projects, handoff entries, and MEMORY.md token estimate.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -2161,7 +2160,7 @@ async function handleBrainRefresh(): Promise<{ content: ToolContent[] }> {
   refreshMemoryMd(root, process.cwd());
   const audit = auditBrain(root);
   return textResult(`MEMORY.md refreshed (~${audit.memoryMdTokenEstimate} tokens). ` +
-    `${audit.identityLines} identity rules, ${audit.domainCount} domains, ${audit.projectCount} projects.`);
+    `${audit.identityLines} identity rules, ${audit.codingLines} coding rules, ${audit.domainCount} domains, ${audit.projectCount} projects.`);
 }
 
 async function handleBrainMigrate(): Promise<{ content: ToolContent[] }> {
@@ -2190,6 +2189,7 @@ async function handleBrainAudit(): Promise<{ content: ToolContent[] }> {
     "## .brain/ Health Report",
     "",
     `Identity rules: ${audit.identityLines}`,
+    `Coding rules: ${audit.codingLines}`,
     `Goals: ${audit.goalsLines}`,
     `Domains: ${audit.domainCount} (${audit.domains.join(", ") || "none"})`,
     `Projects: ${audit.projectCount} (${audit.projects.join(", ") || "none"})`,

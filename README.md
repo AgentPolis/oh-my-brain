@@ -12,6 +12,7 @@ lessons learned.
 ```text
 .brain/
 ├── identity.md
+├── coding.md
 ├── goals.md
 ├── domains/work.md
 ├── projects/my-app.md
@@ -44,9 +45,9 @@ going without you re-explaining the project.
 records the lesson. Repeated corrections can later be promoted into a
 more reusable skill or procedure.
 
-**Session 20:** Your `.brain/` contains your identity, goals, work
-standards, project history, skills, and lessons learned. New sessions
-start smarter than the last one.
+**Session 20:** Your `.brain/` contains your identity, coding rules,
+goals, concrete work/life context, project history, skills, and lessons
+learned. New sessions start smarter than the last one.
 
 ## Why it's different
 
@@ -65,9 +66,9 @@ start smarter than the last one.
 
 ## How it works
 
-1. **`.brain/` is the source of truth.** Identity, goals, domains,
-   projects, skills, and episodes live in structured markdown files you
-   can inspect and edit.
+1. **`.brain/` is the source of truth.** Identity, coding rules, goals,
+   concrete context files like work or life, projects, skills, and
+   episodes live in structured markdown files you can inspect and edit.
 2. **`MEMORY.md` is working memory.** It is auto-assembled each session.
    Stable content stays near the top; dynamic content changes with the
    current project and last handoff.
@@ -84,6 +85,11 @@ start smarter than the last one.
 
 Today, `.brain/` is the durable structure and `MEMORY.md` remains the
 flat compatibility layer for tools that still expect a single file.
+
+Core categories are intentionally concrete: `identity`, `coding`,
+`goals`, `project`, and explicit context files like `work` or `life`.
+If a new category is needed, prefer a specific name like `investing` or
+`learning`, not an abstract bucket like `domain` or `context`.
 
 ## Install
 
@@ -174,10 +180,10 @@ Those are memory stores. oh-my-brain is opinionated about importance,
 handoff, review, and skill growth. Different category.
 
 **Why not just commit `AGENTS.md`, `CLAUDE.md`, or `MEMORY.md` to the repo?**  
-Those files help, but they are static. oh-my-brain turns them into a
-living memory system: it updates working memory per session, records
-handoffs, learns from repeated corrections, and keeps a review queue for
-uncertain memories instead of silently mutating prompts.
+Many teams already have `AGENTS.md` or `CLAUDE.md`. That is a good start.
+Those files tell an agent how to begin. oh-my-brain helps it not restart
+from zero by adding dynamic memory, cross-session handoff, and updated
+working context.
 
 **Privacy?**  
 Everything is local. No cloud, no API keys, no telemetry. You own your
