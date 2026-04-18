@@ -24,6 +24,9 @@ import {
   importBrain,
   listDomains,
   listProjects,
+  isNoise,
+  loadScopeConfig,
+  saveScopeConfig,
 } from "../cli/brain-store.js";
 
 let tmpDir: string;
@@ -52,6 +55,15 @@ describe("initBrainDir", () => {
     initBrainDir(tmpDir);
     initBrainDir(tmpDir); // no error
     expect(hasBrainDir(tmpDir)).toBe(true);
+  });
+
+  it("creates default scope.json", () => {
+    initBrainDir(tmpDir);
+    const scope = loadScopeConfig(tmpDir);
+    expect(scope.kind).toBe("project");
+    expect(scope.localFirst).toBe(true);
+    expect(scope.overlayGlobalPreferences).toBe(false);
+    expect(scope.projectRoot).toBe(tmpDir);
   });
 });
 
@@ -231,6 +243,37 @@ describe("assembleBrainToMemory", () => {
     const output = assembleBrainToMemory(tmpDir);
     expect(output).toBe("");
   });
+
+  it("includes scope rule in MEMORY projection", () => {
+    initBrainDir(tmpDir);
+    const output = assembleBrainToMemory(tmpDir);
+    expect(output).toContain("Scope: project-local brain first; overlay global user preferences only when enabled.");
+  });
+
+  it("overlays global identity when scope enables it", () => {
+    const globalDir = mkdtempSync(join(tmpdir(), "brain-global-"));
+    try {
+      const globalPaths = initBrainDir(globalDir);
+      appendToIdentity(globalPaths, "communicate in Chinese");
+
+      const localPaths = initBrainDir(tmpDir);
+      appendToIdentity(localPaths, "use TypeScript strict mode");
+      saveScopeConfig(tmpDir, {
+        kind: "project",
+        projectRoot: tmpDir,
+        localFirst: true,
+        overlayGlobalPreferences: true,
+        globalBrainRoot: globalDir,
+      });
+
+      const output = assembleBrainToMemory(tmpDir);
+      expect(output).toContain("## Global Preferences (overlay)");
+      expect(output).toContain("communicate in Chinese");
+      expect(output).toContain("use TypeScript strict mode");
+    } finally {
+      rmSync(globalDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("refreshMemoryMd", () => {
@@ -361,6 +404,8 @@ describe("export / import", () => {
       const paths2 = resolveBrainPaths(tmpDir2);
       const identity2 = readFileSync(paths2.identity, "utf8");
       expect(identity2).toContain("exported rule");
+      const scope2 = loadScopeConfig(tmpDir2);
+      expect(scope2.localFirst).toBe(true);
 
       // MEMORY.md refreshed
       const memoryMd = readFileSync(join(tmpDir2, "MEMORY.md"), "utf8");
@@ -405,6 +450,33 @@ describe("brainRemember with confidence", () => {
     const result = brainRemember(tmpDir, "always validate LLM output");
     expect(result.needsReview).toBe(false);
     expect(result.written).toBe(true);
+  });
+
+  it("does not write conversational Chinese requests into identity", () => {
+    initBrainDir(tmpDir);
+    const result = brainRemember(tmpDir, "能補的都補上吧，然後我們等等再看 README");
+    expect(result.written).toBe(false);
+    expect(result.needsReview).toBe(false);
+
+    const identity = readFileSync(join(tmpDir, ".brain", "identity.md"), "utf8");
+    expect(identity).not.toContain("能補的都補上吧");
+  });
+
+  it("filters conversational guidance as noise instead of direct write", () => {
+    initBrainDir(tmpDir);
+    const result = brainRemember(tmpDir, "我覺得這次先把 benchmark 改一下就好");
+    expect(result.written).toBe(false);
+    expect(result.needsReview).toBe(false);
+  });
+});
+
+describe("isNoise", () => {
+  it("treats questions as noise", () => {
+    expect(isNoise("你怎麼看這個？")).toBe(true);
+  });
+
+  it("allows durable preferences through noise filter", () => {
+    expect(isNoise("always use Chinese for communication")).toBe(false);
   });
 });
 

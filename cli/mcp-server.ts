@@ -108,6 +108,7 @@ import { SchemaStore } from "./schema-detector.js";
 import {
   hasBrainDir,
   resolveBrainPaths,
+  loadScopeConfig,
   brainRemember,
   assembleBrainToMemory,
   refreshMemoryMd,
@@ -136,6 +137,17 @@ import {
 const SERVER_NAME = "oh-my-brain";
 const SERVER_VERSION = "0.9.0";
 const PROTOCOL_VERSION = "2024-11-05";
+
+function renderScopeRule(root: string): string {
+  if (!hasBrainDir(root)) {
+    return "Scope: project-local brain first; overlay global user preferences only when enabled.";
+  }
+  const scope = loadScopeConfig(root);
+  if (scope.overlayGlobalPreferences && scope.globalBrainRoot) {
+    return `Scope: project-local brain first; overlay global user preferences enabled (${scope.globalBrainRoot}).`;
+  }
+  return "Scope: project-local brain first; overlay global user preferences only when enabled.";
+}
 
 // ── Tool definitions ────────────────────────────────────────────
 
@@ -822,6 +834,7 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
   const domain = typeof args.domain === "string" ? args.domain : undefined;
   const query = typeof args.query === "string" ? args.query : undefined;
   const root = projectRoot();
+  const scopeRule = renderScopeRule(root);
 
   // v2: if .brain/ exists and query is provided, search episodes + skills
   if (hasBrainDir(root) && query) {
@@ -860,9 +873,9 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
     }
 
     if (parts.length === 0) {
-      return textResult(`no episodes or skills match "${query}"`);
+      return textResult(`${scopeRule}\n\nno episodes or skills match "${query}"`);
     }
-    return textResult(parts.join("\n"));
+    return textResult(`${scopeRule}\n\n${parts.join("\n")}`);
   }
 
   // v2: refresh MEMORY.md before recall if .brain/ exists
@@ -916,6 +929,8 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
     const eventSummary = events.getSummary();
     const viewpointsCaptured = events.searchByCategory("viewpoint").length;
     const lines = [
+      scopeRule,
+      "",
       `You have ${activeBullets.length} directives, ${eventSummary.count} events, ${viewpointsCaptured} viewpoints, ${habits.length} habits.`,
       `Directive categories: ${categories.join(" | ")}`,
       "Use brain_recall with type=<category> to load specific rules.",
@@ -1012,7 +1027,7 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
     selectedBullets.map((bullet) => bullet.body)
   );
   const label = mode === "type" ? `Active directives for ${requestedType}` : "Active directives";
-  let output = `${label} (${selectedBullets.length}):\n\n${renderedBullets.join("\n")}${
+  let output = `${scopeRule}\n\n${label} (${selectedBullets.length}):\n\n${renderedBullets.join("\n")}${
     conflicts.length > 0 ? `\n\n${conflicts.join("\n")}` : ""
   }`;
 
@@ -1427,6 +1442,7 @@ function handleBrainWhy(args: Record<string, unknown>): { content: ToolContent[]
 
 async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
   const root = projectRoot();
+  const scopeRule = renderScopeRule(root);
   const store = loadCandidateStore(root);
   const pending = pendingCount(store);
   const total = listCandidates(store).length;
@@ -1508,6 +1524,7 @@ async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
       : 0;
 
   const parts = [
+    scopeRule,
     `project: ${root}`,
     `memory_path: ${mPath}`,
     `memory_exists: ${memoryExists}`,

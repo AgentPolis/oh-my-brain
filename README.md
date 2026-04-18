@@ -55,17 +55,13 @@ start smarter than the last one.
 2. **Importance-aware memory.** Not everything is remembered equally.
    L0 noise is discarded, L1 observations are compressible, L2
    preferences are promoted with confidence, and L3 directives are
-   protected from forgetting.
+   protected from forgetting. Low-confidence memories go into a review
+   queue instead of being silently stored.
 3. **Cross-session handoff.** `brain_handoff` records what happened,
    what was decided, and what comes next, so the next agent can continue
    instead of restarting from zero.
 4. **Correction-driven skill growth.** Repeated corrections can be
    promoted into reusable skills and procedures.
-5. **Working memory projection.** `.brain/` is durable storage.
-   `MEMORY.md` is the flat compatibility layer and session working
-   memory.
-6. **Human review for fuzzy memories.** Low-confidence memories go into
-   a review queue instead of being silently stored.
 
 ## How it works
 
