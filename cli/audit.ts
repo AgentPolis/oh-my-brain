@@ -4,10 +4,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from "fs";
 import { join, resolve } from "path";
 import { isDirectEntry } from "./is-main.js";
+import { buildKeywordProfile } from "../src/triage/domain-router.js";
 
 interface ProjectRunRecord {
   timestamp?: string;
@@ -220,13 +222,63 @@ export function renderMarkdown(projectRoot: string, runs: ProjectRunRecord[], me
   return lines.join("\n");
 }
 
+const SPLIT_THRESHOLD = 30;
+const MERGE_OVERLAP_THRESHOLD = 0.5;
+
+export function reportDomainStats(projectRoot: string): string {
+  const memoryDir = join(projectRoot, "memory");
+  if (!existsSync(memoryDir)) return "";
+  const files = readdirSync(memoryDir).filter((f) => f.endsWith(".md")).sort();
+  if (files.length === 0) return "";
+
+  const lines: string[] = ["", "## Domain Stats", ""];
+
+  const domains: { name: string; count: number; tokens: number; profile: ReturnType<typeof buildKeywordProfile> }[] = [];
+  for (const f of files) {
+    const name = f.replace(/\.md$/, "");
+    const content = readFileSync(join(memoryDir, f), "utf8");
+    const bullets = content.split("\n").filter((l) => /^-\s+/.test(l));
+    const bodies = bullets.map((l) => l.replace(/^-\s+(?:\[[^\]]*\]\s+)?/, ""));
+    const tokens = Math.ceil(content.length / 4);
+    domains.push({ name, count: bullets.length, tokens, profile: buildKeywordProfile(name, bodies) });
+  }
+
+  for (const d of domains) {
+    const plural = d.count === 1 ? "directive" : "directives";
+    lines.push(`- **${d.name}**: ${d.count} ${plural} (~${d.tokens} tokens)`);
+  }
+
+  const large = domains.filter((d) => d.count > SPLIT_THRESHOLD);
+  if (large.length > 0) {
+    lines.push("");
+    for (const d of large) {
+      lines.push(`⚠️ **${d.name}** has ${d.count} directives — consider splitting into sub-domains`);
+    }
+  }
+
+  for (let i = 0; i < domains.length; i++) {
+    for (let j = i + 1; j < domains.length; j++) {
+      const a = domains[i].profile.keywords;
+      const b = domains[j].profile.keywords;
+      const intersection = new Set([...a].filter((k) => b.has(k)));
+      const smaller = Math.min(a.size, b.size);
+      if (smaller > 0 && intersection.size / smaller > MERGE_OVERLAP_THRESHOLD) {
+        lines.push(`⚠️ **${domains[i].name}** and **${domains[j].name}** share ${Math.round(intersection.size / smaller * 100)}% keywords — consider merging`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export function writeLatestAudit(projectRoot: string): string {
   const runs = loadProjectRuns(projectRoot);
   const memoryEntries = parseMemoryEntries(join(projectRoot, "MEMORY.md"));
   const markdown = renderMarkdown(projectRoot, runs, memoryEntries);
+  const domainStats = reportDomainStats(projectRoot);
   const outputPath = join(projectRoot, ".squeeze", "LATEST.md");
   mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
-  writeFileSync(outputPath, `${markdown}\n`);
+  writeFileSync(outputPath, `${markdown}${domainStats}\n`);
   return outputPath;
 }
 

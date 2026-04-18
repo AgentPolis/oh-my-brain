@@ -1014,4 +1014,70 @@ describe("MCP server", () => {
     });
     expect(response.error).toBeUndefined();
   });
+
+  it("brain_domains lists domain files with stats", async () => {
+    const { mkdirSync, writeFileSync } = await import("fs");
+    mkdirSync(join(tmp, "memory"), { recursive: true });
+    writeFileSync(join(tmp, "memory", "work.md"), "## work\n\n- rule 1\n- rule 2\n");
+    writeFileSync(join(tmp, "memory", "life.md"), "## life\n\n- rule 1\n");
+
+    const response = await callTool("brain_domains");
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    const parsed = JSON.parse(text);
+    expect(Array.isArray(parsed)).toBe(true);
+    const work = parsed.find((d: { name: string }) => d.name === "work");
+    expect(work).toBeDefined();
+    expect(work.directiveCount).toBe(2);
+    const life = parsed.find((d: { name: string }) => d.name === "life");
+    expect(life).toBeDefined();
+    expect(life.directiveCount).toBe(1);
+  });
+
+  it("brain_domains returns message when memory/ does not exist", async () => {
+    const response = await callTool("brain_domains");
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("no domains");
+  });
+
+  it("brain_remember with domain writes to domain file", async () => {
+    const { mkdirSync, existsSync, readFileSync } = await import("fs");
+    mkdirSync(join(tmp, "memory"), { recursive: true });
+
+    const response = await callTool("brain_remember", {
+      text: "Always run TDD",
+      domain: "work",
+    });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("memory/work.md");
+    expect(existsSync(join(tmp, "memory", "work.md"))).toBe(true);
+    const content = readFileSync(join(tmp, "memory", "work.md"), "utf8");
+    expect(content).toContain("Always run TDD");
+  });
+
+  it("brain_recall with domain reads from domain file", async () => {
+    const { mkdirSync, writeFileSync } = await import("fs");
+    mkdirSync(join(tmp, "memory"), { recursive: true });
+    writeFileSync(join(tmp, "memory", "work.md"), "## work\n\n- [mcp] Only work rules here\n");
+
+    const response = await callTool("brain_recall", { domain: "work", mode: "all" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("Only work rules here");
+  });
+
+  it("brain_recall with missing domain returns error", async () => {
+    const response = await callTool("brain_recall", { domain: "nonexistent" });
+    const text = (response.result as { content: { text: string }[] }).content[0].text;
+    expect(text).toContain("not found");
+  });
+
+  it("brain_domains is listed in tools", async () => {
+    const response = await handleRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    const result = response.result as { tools: { name: string }[] };
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain("brain_domains");
+  });
 });

@@ -34,8 +34,8 @@
  *                                to process.cwd() at server start.
  */
 
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { readFileSync, existsSync, readdirSync } from "fs";
+import { basename, join } from "path";
 import { OutcomeStore } from "../src/storage/outcomes.js";
 import { ProcedureStore } from "../src/storage/procedures.js";
 import { extractProcedure } from "../src/procedure/extractor.js";
@@ -148,6 +148,10 @@ const TOOLS: ToolDefinition[] = [
           type: "string",
           description: "Optional session identifier for provenance tracking.",
         },
+        domain: {
+          type: "string",
+          description: "Target domain file (e.g., 'work'). Omit for auto-routing based on content.",
+        },
       },
       required: ["text"],
     },
@@ -181,6 +185,10 @@ const TOOLS: ToolDefinition[] = [
           type: "boolean",
           description:
             "Include stored evidence text and turn index for each directive. Default: false.",
+        },
+        domain: {
+          type: "string",
+          description: "Filter to a specific domain (e.g., 'work'). Omit to recall from all domains.",
         },
       },
     },
@@ -499,6 +507,14 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "brain_domains",
+    description:
+      "List available memory domains with stats. Returns domain names, " +
+      "directive counts, and estimated token sizes. Use this to understand " +
+      "how memory is organized before calling brain_recall with a domain filter.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "brain_procedures",
     description:
       "List, approve, or archive saved procedures. Procedures are multi-step " +
@@ -584,38 +600,62 @@ function parseActiveDirectiveBullets(content: string): Array<{ line: string; bod
 // Agent instruction moved to brain_recall tool description to save ~300 tokens
 // per brain_recall response. MCP clients read tool descriptions at session start.
 
+async function handleBrainDomains(): Promise<{ content: ToolContent[] }> {
+  const memoryDir = join(projectRoot(), "memory");
+  if (!existsSync(memoryDir)) {
+    return textResult("no domains — memory/ directory does not exist. Using flat MEMORY.md.");
+  }
+  const files = readdirSync(memoryDir).filter((f) => f.endsWith(".md")).sort();
+  if (files.length === 0) return textResult("no domain files found in memory/");
+
+  const domains = files.map((f) => {
+    const domain = basename(f, ".md");
+    const content = readFileSync(join(memoryDir, f), "utf8");
+    const bullets = content.split("\n").filter((l) => /^-\s+/.test(l));
+    const tokens = Math.ceil(content.length / 4);
+    return { name: domain, directiveCount: bullets.length, tokens };
+  });
+  return textResult(JSON.stringify(domains, null, 2));
+}
+
 async function handleBrainRemember(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const text = typeof args.text === "string" ? args.text.trim() : "";
-  if (!text) {
-    return textResult("error: text is required and must be non-empty");
-  }
+  if (!text) return textResult("error: text is required and must be non-empty");
   const source = typeof args.source === "string" ? args.source : "mcp";
   const sessionId = typeof args.session_id === "string" ? args.session_id : undefined;
+  const domain = typeof args.domain === "string" ? args.domain : undefined;
 
   const action = await applyRememberDirective(
-    { projectRoot: projectRoot(), source, sessionId },
+    { projectRoot: projectRoot(), source, sessionId, domain },
     { text }
   );
 
+  const target = domain ? `memory/${domain}.md` : "MEMORY.md";
   if (action.payload.written) {
-    return textResult(
-      `remembered: "${text}" → MEMORY.md (action ${action.id})`
-    );
+    return textResult(`remembered: "${text}" → ${target} (action ${action.id})`);
   }
-  return textResult(
-    `already remembered: "${text}" is already present in MEMORY.md (action ${action.id} logged anyway for traceability)`
-  );
+  return textResult(`already remembered: "${text}" is already present (action ${action.id} logged anyway for traceability)`);
 }
 
 async function handleBrainRecall(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const mode = typeof args.mode === "string" ? args.mode : "summary";
   const requestedType = typeof args.type === "string" ? args.type : "";
   const withEvidence = args.with_evidence === true;
-  const path = memoryPath();
-  if (!existsSync(path)) {
-    return textResult("no directives yet — MEMORY.md does not exist");
+  const domain = typeof args.domain === "string" ? args.domain : undefined;
+
+  let content: string;
+  if (domain) {
+    const domainPath = join(projectRoot(), "memory", `${domain}.md`);
+    if (!existsSync(domainPath)) {
+      return textResult(`domain "${domain}" not found — no memory/${domain}.md file`);
+    }
+    content = readFileSync(domainPath, "utf8");
+  } else {
+    const path = memoryPath();
+    if (!existsSync(path)) return textResult("no directives yet — MEMORY.md does not exist");
+    content = readFileSync(path, "utf8");
   }
-  const content = readFileSync(path, "utf8");
+
   const activeBullets = parseActiveDirectiveBullets(content);
 
   if (activeBullets.length === 0) {
@@ -1788,6 +1828,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<{ 
       return handleBrainSaveProcedure(args);
     case "brain_procedures":
       return handleBrainProcedures(args);
+    case "brain_domains":
+      return handleBrainDomains();
     default:
       return textResult(`error: unknown tool "${name}"`);
   }

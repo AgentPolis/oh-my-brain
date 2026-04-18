@@ -159,6 +159,12 @@ async function main(): Promise<number> {
     return await mod.runDiffCli(delegated, process.cwd());
   }
 
+  if (cmd === "remember") {
+    const delegated = [process.argv[0], "remember", ...args.slice(1)];
+    const mod = await import("./remember.js");
+    return await mod.runRememberCli(delegated, process.cwd());
+  }
+
   process.stderr.write(`Unknown command: ${cmd}\n\n${HELP_TEXT}`);
   return 1;
 }
