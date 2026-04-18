@@ -1,65 +1,85 @@
 # oh-my-brain 🧠
 
-**Your AI grows a `.brain/` — a second brain that understands who you are, remembers what you're working on, and gets smarter the more you use it.**
+**Your AI stops starting from zero.**
+
+oh-my-brain gives Claude, Codex, Cursor, and other MCP tools a shared
+`.brain/` that preserves your preferences, project state, handoffs, and
+lessons learned.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
-```
+```text
 .brain/
-├── identity.md        ← who you are (stable across everything)
-├── goals.md           ← where you're headed
-├── domains/work.md    ← your work persona + standards
-├── projects/my-app.md ← progress + handoff log
-├── skills/            ← auto-generated from corrections & patterns
-└── episodes/          ← lessons learned (searchable)
+├── identity.md
+├── goals.md
+├── domains/work.md
+├── projects/my-app.md
+├── skills/
+└── episodes/
 ```
 
-Every AI coding tool gives you a fresh agent with amnesia. You explain
-your preferences, your project context, your standards — then the session
-ends and it all disappears.
+## The problem
 
-oh-my-brain fixes that. It gives your AI a brain that persists.
+Every AI coding tool gives you a fresh agent with amnesia.
+
+You explain your standards, preferences, and project context.
+The session ends.
+The next agent starts from zero.
+
+oh-my-brain fixes that by giving your tools a portable brain that lives
+with your project.
 
 ## What happens when you use it
 
-**Session 1:** You tell Claude "always use Chinese for reviews" and "never
-attack competitors in docs." oh-my-brain saves these to `.brain/identity.md`.
+**Session 1:** You tell Claude "always use Chinese for reviews" and
+"never attack competitors in docs." oh-my-brain saves these to your
+brain.
 
-**Session 2:** You're working on oh-my-brain. The agent already knows your
-preferences, sees yesterday's handoff note, and picks up where you left off.
+**Session 2:** You're working on the same project in Codex. The agent
+already knows your preferences, sees yesterday's handoff, and picks up
+where you left off.
 
 **Session 5:** You correct the agent: "run tests before committing." It
-records the lesson. You correct it again on the same thing. oh-my-brain
-generates a permanent skill file. The agent never makes that mistake again.
+records the lesson. After repeated corrections, it can turn that into a
+reusable skill.
 
-**Session 20:** Your `.brain/` has your identity, your goals, your work
-standards, project history, 12 skills, and 30 lessons learned. Every new
-session starts smarter than the last.
+**Session 20:** Your `.brain/` contains your identity, goals, work
+standards, project history, skills, and lessons learned. New sessions
+start smarter than the last one.
+
+## Why it's different
+
+1. **Shared brain across tools.** Claude, Codex, Cursor, Windsurf, and
+   MCP clients can all read the same memory.
+2. **Cross-session handoff.** `brain_handoff` records what happened,
+   what was decided, and what comes next.
+3. **Correction-driven skill growth.** Repeated corrections can become
+   reusable skills and procedures.
+4. **Working memory projection.** `.brain/` is durable storage.
+   `MEMORY.md` is the flat compatibility layer and session working
+   memory.
+5. **Human review for fuzzy memories.** Low-confidence memories go into
+   a review queue instead of being silently stored.
 
 ## How it works
 
-1. **`.brain/` is the source of truth.** Five layers: identity, goals,
-   life domains, projects, episodes. Structured markdown you can read
-   and edit.
+1. **`.brain/` is the source of truth.** Identity, goals, domains,
+   projects, skills, and episodes live in structured markdown files you
+   can inspect and edit.
+2. **`MEMORY.md` is working memory.** It is auto-assembled each session.
+   Stable content stays near the top; dynamic content changes with the
+   current project and last handoff.
+3. **Skills grow from corrections.** Correct once, it records the
+   lesson. Correct repeatedly, it can promote that lesson into a more
+   reusable skill or procedure.
+4. **Handoffs preserve continuity.** Session state can be recorded and
+   reused so you do not have to re-explain context.
+5. **Review keeps memory trustworthy.** Low-confidence memories go into
+   the candidate queue for approval.
 
-2. **`MEMORY.md` is working memory.** Auto-assembled each session.
-   Stable content (who you are) at the top for KV cache. Dynamic
-   content (current project + last handoff) changes per session.
-
-3. **Skills grow from corrections.** Correct once, it records the lesson.
-   Correct twice, it generates a skill file. Complete a complex task,
-   it captures the procedure. Inspired by
-   [Hermes Agent](https://github.com/nousresearch/hermes-agent)'s
-   self-evolution, but triggered by corrections, not just completions.
-
-4. **Cross-session handoff.** `brain_handoff` records what happened,
-   what was decided, what's next. No more re-explaining context.
-
-5. **You approve what gets kept.** Low-confidence memories go to a
-   review queue. Nothing is silently stored.
-
-Works across Claude Code, Codex, Cursor, Windsurf, and anything that speaks MCP.
+Today, `.brain/` is the durable structure and `MEMORY.md` remains the
+flat compatibility layer for tools that still expect a single file.
 
 ## Install
 
@@ -69,7 +89,9 @@ npm install -g oh-my-brain
 
 ## Quick start
 
-### Claude Code (Stop hook)
+### Claude Code
+
+Add this Stop hook to `~/.claude/settings.json`:
 
 ```json
 {
@@ -84,10 +106,14 @@ npm install -g oh-my-brain
 }
 ```
 
-Add to `~/.claude/settings.json`. After every session, your `.brain/`
-grows and `MEMORY.md` updates.
+After each session, your brain grows and `MEMORY.md` updates.
 
-### Cursor / Windsurf / Claude Desktop (MCP)
+To verify it worked, finish one Claude Code session, then check that
+`MEMORY.md` changed or a new handoff / directive appeared in `.brain/`.
+
+### Cursor / Windsurf / Claude Desktop
+
+Point your MCP client at `brain-mcp`:
 
 ```json
 {
@@ -101,78 +127,111 @@ grows and `MEMORY.md` updates.
 }
 ```
 
+To verify it worked, connect the MCP server and call `brain_status` or
+`brain_recall`. If they respond, the brain is live.
+
 ### Codex
 
 ```bash
 brain-codex-sync --watch
 ```
 
-## MCP tools
-
-| Tool | What it does |
-|------|-------------|
-| `brain_remember` | Save a directive (auto-routes to identity/domain/project) |
-| `brain_recall` | Read memory + search episodes and skills |
-| `brain_handoff` | Record session state for the next session |
-| `brain_projects` | List projects with status and last handoff |
-| `brain_skills` | List auto-generated skills |
-| `brain_candidates` | Review pending memories (approve/reject) |
-| `brain_migrate` | Convert existing MEMORY.md into `.brain/` |
-| `brain_audit` | Brain health report |
-| `brain_export` / `brain_import` | Portable backup |
-| `brain_search` | Search archived history by date or keyword |
-| `brain_refresh` | Reassemble MEMORY.md from `.brain/` |
-| `brain_retire` | Archive a stale directive |
-| `brain_status` | Counts and health info |
+To verify it worked, let Codex finish a session and confirm that
+`MEMORY.md` or `.brain/` changed afterward.
 
 ## Benchmarks
 
 Real numbers on real datasets.
 
-| Benchmark | Score |
-|-----------|-------|
-| LongMemEval 50q temporal | **92%** (46/50) |
-| LongMemEval 500q official | **67.6%** (338/500) |
-| Directive retention (100+ turns) | **100%** |
-| Cross-agent handoff | **6/6 pass** |
-| Context startup cost | **~49 tokens** |
+Primary public benchmark: **67.6% (338/500)** on the full LongMemEval
+oracle suite.
+
+Secondary result: **92% (46/50)** on the oracle temporal-reasoning
+subset.
+
+Other checks:
+
+- Directive retention (100+ turns): **100%**
+- Cross-agent handoff: **6/6 pass**
+- Context startup cost: **~49 tokens**
 
 See [benchmark methodology](docs/real-session-replay-eval.md) and
 [LongMemEval details](docs/longmemeval-500-oracle.md).
 
 ## FAQ
 
-**Why not Claude's built-in memory?**
-Single-agent. Switch to Codex, it's gone. oh-my-brain is portable —
-`.brain/` lives with your project and every tool reads it.
+**Why not Claude's built-in memory?**  
+Claude's memory is single-agent. Switch to Codex and it is gone.
+oh-my-brain is portable: the brain lives with your project and can be
+read by multiple tools.
 
-**Why not Mem0 / Zep / Letta?**
-Those are memory stores. oh-my-brain is a brain — it classifies what
-matters, grows skills from corrections, and hands off context across
-sessions. Different category.
+**Why not Mem0 / Zep / Letta?**  
+Those are memory stores. oh-my-brain is opinionated about importance,
+handoff, review, and skill growth. Different category.
 
-**Privacy?**
-Everything local. No cloud, no API keys, no telemetry. `.brain/` is
-gitignored by default. You own your data.
+**Why not just commit `AGENTS.md`, `CLAUDE.md`, or `MEMORY.md` to the repo?**  
+Those files help, but they are static. oh-my-brain turns them into a
+living memory system: it updates working memory per session, records
+handoffs, learns from repeated corrections, and keeps a review queue for
+uncertain memories instead of silently mutating prompts.
 
-## Architecture
+**Privacy?**  
+Everything is local. No cloud, no API keys, no telemetry. You own your
+data.
+
+## MCP tools
+
+### Core
+
+| Tool | What it does |
+|------|-------------|
+| `brain_remember` | Save a directive or memory |
+| `brain_recall` | Read current memory, episodes, and skills |
+| `brain_handoff` | Record session state for the next session |
+| `brain_candidates` | Review pending memories |
+
+### Maintenance
+
+| Tool | What it does |
+|------|-------------|
+| `brain_status` | Counts and health info |
+| `brain_audit` | Brain health report |
+| `brain_refresh` | Reassemble `MEMORY.md` from `.brain/` |
+| `brain_retire` | Archive a stale directive |
+| `brain_search` | Search archived history by date or keyword |
+
+### Portability
+
+| Tool | What it does |
+|------|-------------|
+| `brain_migrate` | Convert existing `MEMORY.md` into `.brain/` |
+| `brain_export` / `brain_import` | Portable backup and restore |
+| `brain_projects` | List projects with status and last handoff |
+| `brain_skills` | List auto-generated skills |
+
+## Storage model
 
 oh-my-brain uses PGLite (embedded PostgreSQL) for the knowledge graph.
 Zero setup, zero Docker. The `.brain/` directory is plain markdown on
-top — human-readable, git-friendly, portable.
+top: human-readable, git-friendly, and portable.
+
+## Development
 
 ```bash
 npm test           # watch mode
-npm run test:run   # single run (755 tests)
+npm run test:run   # single run
 npm run verify     # lint + tests + build + pack
 ```
+
+## Learn more
+
+- [Why Memory Candidates](docs/why-memory-candidates.md)
+- [Cross-agent handoff demo](docs/cross-agent-demo.md)
+- [What oh-my-brain can and can't control](docs/context-structure-and-intervention.md)
+- [Why personal world models matter](docs/why-personal-world-model.md)
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-## Learn more
-
-- [Why Memory Candidates](docs/why-memory-candidates.md) — the origin story
-- [Cross-agent handoff demo](docs/cross-agent-demo.md)
-- [What oh-my-brain can and can't control](docs/context-structure-and-intervention.md)
+For commercial licensing inquiries, contact: hs.ze.lab@gmail.com
