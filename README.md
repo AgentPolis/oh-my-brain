@@ -1,257 +1,93 @@
 # oh-my-brain 🧠
 
-**Your AI grows a `.brain/` — a structured cognitive model that makes every agent understand you, remember what you're working on, and learn from mistakes.**
+**Your AI grows a `.brain/` — a second brain that understands who you are, remembers what you're working on, and gets smarter the more you use it.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
 ```
 .brain/
-├── identity.md       ← who you are (stable across everything)
-├── goals.md          ← where you're headed
-├── domains/work.md   ← your work persona + standards
+├── identity.md        ← who you are (stable across everything)
+├── goals.md           ← where you're headed
+├── domains/work.md    ← your work persona + standards
 ├── projects/my-app.md ← progress + handoff log
-├── skills/           ← auto-generated from corrections & patterns
-└── episodes/         ← lessons learned (searchable)
+├── skills/            ← auto-generated from corrections & patterns
+└── episodes/          ← lessons learned (searchable)
 ```
 
-**Three things no other memory tool does:**
+Every AI coding tool gives you a fresh agent with amnesia. You explain
+your preferences, your project context, your standards — then the session
+ends and it all disappears.
 
-1. **Cross-session handoff.** `brain_handoff` records what happened, what was decided, what's next. The next session picks up where you left off. No more re-explaining context.
+oh-my-brain fixes that. It gives your AI a brain that persists.
 
-2. **Correction-driven skill growth.** Correct an agent once, it records the lesson. Correct the same thing twice, it generates a permanent skill file. Complete a complex task (5+ steps), it captures the procedure. Next time, it follows the skill and finishes faster.
+## What happens when you use it
 
-3. **Working memory projection.** `.brain/` is the source of truth. `MEMORY.md` is an intelligent projection — stable content (identity + goals) at the top for KV cache, dynamic content (current project + handoff) changes per session. Not a dumb concat of everything.
+**Session 1:** You tell Claude "always use Chinese for reviews" and "never
+attack competitors in docs." oh-my-brain saves these to `.brain/identity.md`.
+
+**Session 2:** You're working on oh-my-brain. The agent already knows your
+preferences, sees yesterday's handoff note, and picks up where you left off.
+
+**Session 5:** You correct the agent: "run tests before committing." It
+records the lesson. You correct it again on the same thing. oh-my-brain
+generates a permanent skill file. The agent never makes that mistake again.
+
+**Session 20:** Your `.brain/` has your identity, your goals, your work
+standards, project history, 12 skills, and 30 lessons learned. Every new
+session starts smarter than the last.
+
+## How it works
+
+1. **`.brain/` is the source of truth.** Five layers: identity, goals,
+   life domains, projects, episodes. Structured markdown you can read
+   and edit.
+
+2. **`MEMORY.md` is working memory.** Auto-assembled each session.
+   Stable content (who you are) at the top for KV cache. Dynamic
+   content (current project + last handoff) changes per session.
+
+3. **Skills grow from corrections.** Correct once, it records the lesson.
+   Correct twice, it generates a skill file. Complete a complex task,
+   it captures the procedure. Inspired by
+   [Hermes Agent](https://github.com/nousresearch/hermes-agent)'s
+   self-evolution, but triggered by corrections, not just completions.
+
+4. **Cross-session handoff.** `brain_handoff` records what happened,
+   what was decided, what's next. No more re-explaining context.
+
+5. **You approve what gets kept.** Low-confidence memories go to a
+   review queue. Nothing is silently stored.
 
 Works across Claude Code, Codex, Cursor, Windsurf, and anything that speaks MCP.
-You shouldn't have to say "remember that". A real brain just remembers.
 
-## The story behind it
-
-We discovered the real problem by dogfooding our own tool.
-
-We were testing it across two windows. We gave the agent corrections like:
-
-- "Are you sure you understood the situation?"
-- "This is supposed to move continuously"
-- "There are too many reminders in the right sidebar"
-
-Any human would obviously remember these. The classifier stored **none**
-of them. It was waiting for "always" or "never" or "remember that". Real
-humans don't talk like that.
-
-So we built [**Memory Candidates**](docs/why-memory-candidates.md) — a
-two-stage capture system. Strong, explicit rules go straight into your
-brain. Soft signals (corrections, preferences, friction patterns) land
-in a review queue you can approve, edit, or reject. Nothing important
-gets dropped just because you forgot to phrase it like an RFC.
-
-That's the difference between a database and a brain.
-
-## What it does
-
-Four importance levels, plus the thing nobody else does:
-
-- **L0 Discard** — "ok", "got it", empty tool output. Dropped immediately.
-- **L1 Observation** — Regular messages and tool results. Compressed
-  summaries stay in active context; **full text archived**; structured
-  events extracted with who/what/when/where for precise temporal
-  retrieval.
-- **L2 Preference** — Explicit statements like "I prefer tabs" or
-  "I prefer TypeScript". Promoted with confidence scores.
-- **L3 Directive** — Your "always" and "never" rules. **Never compressed.
-  Never summarized. Never forgotten.**
-- **Events** — Structured episodic memory extracted from conversations.
-  "I got my car serviced on March 14th" becomes a searchable event with
-  date, category, people, and sentiment.
-- **Viewpoints** — Your opinions and judgments captured as memory.
-  "I think microservices are overengineered" is remembered.
-- **Habits** — Recurring behavior patterns auto-detected from events.
-  If you fly United 3+ times, oh-my-brain notices.
-- **Relations** — Who you trust and why. "Tom recommended Redis, it
-  worked well" builds trust. Agent considers trust when weighing
-  conflicting advice.
-- **Schemas** — Your decision frameworks, auto-detected from habits.
-  "Code Review: error handling → naming → tests" is how YOU do
-  reviews. The agent follows your framework, not a generic one.
-- **Memory Candidates** — The soft signals: corrections, complaints,
-  implicit preferences. They land in a review queue you curate, not the
-  bit bucket.
-- **Auto-learning** — High-confidence corrections and repeated
-  preferences are saved automatically (no "remember that" needed).
-  Uncertain signals land in a review queue you curate. Inspired by
-  [Hermes Agent](https://github.com/nousresearch/hermes-agent),
-  but smarter: auto-save when confident, ask when unsure.
-- **Decision Replay** — Evaluates whether your agent makes the same
-  decisions you would. Not retrieval accuracy, decision accuracy.
-  Run `oh-my-brain eval` to benchmark. Results checkpoint after each
-  scenario, so you can rerun the same command to resume a long Codex run.
-  For large suites, use `npm run benchmark:decision-replay -- --scenarios <file> --tool codex`
-  to emit both a resumable checkpoint and a JSON report.
-- **~100 token startup** — Lazy loading. `brain_recall` returns a
-  category summary by default, loads full directives on demand.
-  Your brain costs less context than a system prompt.
-
-When you switch from Claude Code to Codex to Cursor, all of the above
-travel with you via a portable `.brain/` directory plus an MCP server.
-
-### Cognitive coverage
-
-| Memory Type | What | Example | Since |
-|-------------|------|---------|-------|
-| Directive | Explicit rules | "Always use TypeScript" | v0.3 |
-| Preference | Stated preferences | "I prefer tabs" | v0.3 |
-| Event | Episodic memory | "Car serviced Mar 14, GPS broke" | v0.5 |
-| Viewpoint | Opinions | "Microservices are overengineered" | v0.5 |
-| Sentiment | Emotions | "Frustrated with deployment" | v0.5 |
-| Habit | Behavior patterns | "Always writes tests first" | v0.5 |
-| Relation | Trust chains | "Trust Tom on tech, verify Alice on arch" | v0.6 |
-| Schema | Decision frameworks | "Code review: errors → naming → tests" | v0.6 |
-
-## How it's different
-
-|                          | Other memory layers         | oh-my-brain                                        |
-| ------------------------ | --------------------------- | -------------------------------------------------- |
-| Mental model             | Bag of strings              | Typed personal world model (a la Palantir ontology) |
-| Storage                  | Store everything equally    | Classify by importance, protect what matters       |
-| Soft signals             | Ignored unless you say "always" | Captured as Memory Candidates for review       |
-| Schema                   | Fixed (or none)             | **Self-growing** — system proposes new types as your patterns emerge |
-| Forgotten rules          | Possible                    | Impossible (L3 immortality)                        |
-| Mutations                | Untracked string edits      | Typed Actions with full provenance + undo         |
-| Auto-learning            | Agent decides silently      | Auto-save when confident, review when unsure      |
-| Compression              | Lossy (data lost)           | Lossless archive — summaries in context, full text searchable |
-| Temporal queries         | Vector similarity only      | Time-indexed archive: `brain_search --when "last Tuesday"` |
-| Memory model             | Flat text / vectors         | Cognitive: events, viewpoints, habits, sentiments, relations, schemas |
-| LongMemEval              | 49-91%                      | 67.6% official 500q oracle, 92% on 50q temporal subset |
-| Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
-| Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
-| Handoff                  | Manual re-prompting         | `brain_handoff` — structured session state with decisions + next steps |
-| Skill growth             | Static prompts              | Auto-generates skill files from corrections and multi-step completions |
-| Working memory           | Dump everything             | Intelligent projection: stable content cached, dynamic content per-session |
-| Cross-agent              | Sometimes                   | Native via MCP + portable `.brain/` directory      |
-| Trust model              | Black box                   | Plain text `.brain/` you can inspect, edit, commit |
-| vs MemPalace             | 170 token startup, spatial metaphor, 96.6% LongMemEval (uncompressed mode) | ~100 token startup, importance classification, Decision Replay benchmark |
-| Origin                   | Built from spec             | Built from real-use frustration                    |
-
-See [`docs/why-personal-world-model.md`](docs/why-personal-world-model.md)
-for the full positioning — why a personal Palantir matters in 2026, and
-how the self-growing ontology works.
-
-## Installation
+## Install
 
 ```bash
 npm install -g oh-my-brain
 ```
 
-## 5-minute proof
-
-If you only try one thing, try this:
-
-```bash
-mkdir oh-my-brain-demo && cd oh-my-brain-demo
-printf '%s\n' '- Always use TypeScript strict mode' > MEMORY.md
-oh-my-brain recall
-```
-
-That is the core promise in miniature: portable, inspectable memory
-that survives agent switches because it lives with your project.
-Run `brain-mcp` then call `brain_migrate` to convert to the full `.brain/` structure.
-
-After install, you get these binaries:
-
-```bash
-oh-my-brain        # umbrella command (learn this one first)
-brain-compress     # Claude Code Stop hook
-brain-codex-sync   # Codex session watcher
-brain-candidates   # Memory Candidates review queue
-brain-audit        # human-readable markdown audit
-brain-consolidate  # offline growth loop (external scan + reflection + sleep consolidation)
-brain-growth       # latest growth summary + pending reflection proposals
-brain-reflect      # approve or dismiss reflection proposals
-brain-mcp          # MCP server (for Cursor, Windsurf, Claude Desktop, etc.)
-```
-
 ## Quick start
 
-### As a Claude Code Stop hook
-
-Add this to `~/.claude/settings.json`:
+### Claude Code (Stop hook)
 
 ```json
 {
   "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "brain-compress"
-          }
-        ]
-      }
-    ]
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "brain-compress"
+      }]
+    }]
   }
 }
 ```
 
-After every Claude Code session, `MEMORY.md` in your project root picks
-up any new directives and new soft signals appear in the review queue:
+Add to `~/.claude/settings.json`. After every session, your `.brain/`
+grows and `MEMORY.md` updates.
 
-```bash
-brain-candidates list
-# → 2 pending candidates:
-#   f22e9b2a [seen 3x] this is supposed to move continuously
-#   a103e8c9 [seen 1x] too many reminders in the right sidebar
-brain-candidates approve f22e9b2a --as "the cursor should always keep moving"
-```
-
-### As a Codex sync agent
-
-```bash
-brain-codex-sync           # one-shot
-brain-codex-sync --watch   # continuous
-./scripts/install-codex-watch.sh  # macOS LaunchAgent
-```
-
-### As an offline growth loop
-
-```bash
-oh-my-brain consolidate
-# or:
-brain-consolidate --stale-days 30
-```
-
-This runs four background-style maintenance steps against the current
-project:
-
-- external scan of project rules and AI instruction files
-- reflection loop for stale directives, conflicts, and merge proposals
-- sleep consolidation of habits, schemas, and timeline index
-- growth journal entry so you can inspect what changed later
-
-`brain-compress` now runs this loop automatically after the normal
-session compression pass, so Claude Code Stop hooks keep the brain
-growing even if you never invoke it manually.
-
-To inspect what changed:
-
-```bash
-oh-my-brain growth
-# or:
-brain-growth
-```
-
-To close the loop on pending proposals:
-
-```bash
-oh-my-brain reflect list
-oh-my-brain reflect approve <proposal-id>
-oh-my-brain reflect dismiss <proposal-id>
-```
-
-### As an MCP server for Cursor / Windsurf / Claude Desktop
-
-Point any MCP client at the `brain-mcp` binary:
+### Cursor / Windsurf / Claude Desktop (MCP)
 
 ```json
 {
@@ -265,264 +101,78 @@ Point any MCP client at the `brain-mcp` binary:
 }
 ```
 
-The client gets these tools:
+### Codex
 
-- `brain_remember` — write a directive (auto-routes to identity/domain/project)
-- `brain_recall` — read active directives, search episodes and skills
-- `brain_search` — search archived full-text history by date or keyword
-- `brain_candidates` — list, add, approve, or reject Memory Candidates
-- `brain_retire` — move a stale directive into the archive section
-- `brain_status` — counts and health info
-- `brain_quiz` — generate a decision scenario to test whether the agent thinks like you
-- `brain_handoff` — record session state for cross-session continuity
-- `brain_projects` — list all projects with status and last handoff
-- `brain_refresh` — reassemble MEMORY.md from `.brain/`
-- `brain_migrate` — convert legacy MEMORY.md into `.brain/` structure
-- `brain_audit` — human-readable brain health report
-- `brain_export` — export `.brain/` as portable JSON bundle
-- `brain_import` — import a `.brain/` bundle into current project
-- `brain_skills` — list auto-generated skill files
-
-### As an OpenClaw plugin
-
-```typescript
-import { ohMyBrainFactory } from "oh-my-brain";
-
-api.registerContextEngine("oh-my-brain", ohMyBrainFactory);
+```bash
+brain-codex-sync --watch
 ```
 
-## The MEMORY.md contract
+## MCP tools
 
-oh-my-brain's durable storage is a `.brain/` directory:
+| Tool | What it does |
+|------|-------------|
+| `brain_remember` | Save a directive (auto-routes to identity/domain/project) |
+| `brain_recall` | Read memory + search episodes and skills |
+| `brain_handoff` | Record session state for the next session |
+| `brain_projects` | List projects with status and last handoff |
+| `brain_skills` | List auto-generated skills |
+| `brain_candidates` | Review pending memories (approve/reject) |
+| `brain_migrate` | Convert existing MEMORY.md into `.brain/` |
+| `brain_audit` | Brain health report |
+| `brain_export` / `brain_import` | Portable backup |
+| `brain_search` | Search archived history by date or keyword |
+| `brain_refresh` | Reassemble MEMORY.md from `.brain/` |
+| `brain_retire` | Archive a stale directive |
+| `brain_status` | Counts and health info |
 
-```
-.brain/
-├── identity.md        ← who you are
-├── goals.md           ← where you're headed
-├── domains/work.md    ← domain-specific standards
-├── projects/my-app.md ← handoff log + progress
-├── skills/            ← auto-generated from corrections
-└── episodes/          ← lessons learned
-```
+## Benchmarks
 
-`MEMORY.md` still exists as an auto-generated working memory projection
-for agents that read flat files. But `.brain/` is the source of truth.
+Real numbers on real datasets.
 
-It's deliberately boring:
-
-- easy to inspect (it's just markdown files)
-- easy to diff and commit to git
-- every agent can read it
-- you can hand-edit any file and oh-my-brain will respect your edits
-
-No database lock-in, no cloud, no API keys.
-
-## Benchmarks (honest version)
-
-We publish real numbers on real datasets. No cherry-picked demos.
-
-### LongMemEval (ICLR 2025)
-
-We now publish two LongMemEval numbers:
-
-- **Focused temporal subset:** 92% (46/50) on the oracle temporal-reasoning subset.
-- **Full oracle suite:** 67.6% (338/500) with the official `evaluate_qa.py`
-  judge (`gpt-4o`) on `longmemeval_oracle.json`.
-
-The second number is the one to treat as the main public benchmark. It is
-harder, broader, and includes the full mix of single-session, preference,
-knowledge-update, temporal-reasoning, multi-session, and abstention questions.
-
-| System | Score | Notes |
-| ------ | ----- | ----- |
-| Mem0 | 49% | Vector retrieval only |
-| **oh-my-brain v0.3.1** | **74%** (37/50) | Rules + preferences + lazy loading |
-| oh-my-brain v0.5.0 | 76% (38/50) | + events, viewpoints, habits |
-| oh-my-brain v0.6.1 | 82% (41/50) | + time precision, pattern expansion |
-| MemPalace (AAAK) | 84.2% | Spatial memory metaphor |
-| Raw dump (no oh-my-brain) | 86% (43/50) | Full transcript, no compression |
-| **oh-my-brain v0.7.0** | **92%** (46/50) | Metadata-clean rerun on 50-question oracle temporal subset |
-| **oh-my-brain v0.7.0** | **67.6%** (338/500) | Official judge on full 500-question oracle suite |
-| Hindsight | 91.4% | Knowledge graph, full dataset |
-| MemPalace (uncompressed mode) | 96.6% | Different eval methodology, see their paper |
-
-**What the full 500-question score says:** oh-my-brain is already strong at
-single-session user facts, assistant-side facts, and explicit preferences. The
-main remaining weakness is long-horizon synthesis: multi-session aggregation,
-temporal composition, and abstaining when the answer is not actually present.
-
-Official 500-question per-type results:
-
-- `single-session-assistant`: 100.0% (56/56)
-- `single-session-user`: 97.1% (68/70)
-- `single-session-preference`: 86.7% (26/30)
-- `knowledge-update`: 79.5% (62/78)
-- `temporal-reasoning`: 49.6% (66/133)
-- `multi-session`: 45.1% (60/133)
-
-For public reproducibility, each rerun should publish:
-
-- repo URL + commit hash
-- benchmark runner version / commit
-- dataset + subset (`oracle`, full 500 questions, or the 50-question temporal subset)
-- raw hypotheses JSONL
-- report JSON with environment metadata
-
-See [`docs/longmemeval-500-oracle.md`](docs/longmemeval-500-oracle.md)
-for the exact setup, file paths, and interpretation notes.
-
-### Compression
-
-| Scenario | Result | Caveat |
-| -------- | ------ | ------ |
-| Real session replay (research-heavy) | **74.1% — 82.1%** char reduction | Heuristic: chars / 4 estimates tokens |
-| Real session replay (workspace scanning) | **30.7%** char reduction | Session-shape dependent |
-
-### Memory integrity
-
-| Scenario | Result |
-| -------- | ------ |
-| Directive retention after 100+ turns | **100%** (10/10) |
+| Benchmark | Score |
+|-----------|-------|
+| LongMemEval 50q temporal | **92%** (46/50) |
+| LongMemEval 500q official | **67.6%** (338/500) |
+| Directive retention (100+ turns) | **100%** |
 | Cross-agent handoff | **6/6 pass** |
-| Startup cost | **~49 tokens** (vs ~2,000 without lazy loading) |
+| Context startup cost | **~49 tokens** |
 
-### What we don't measure yet
-
-- **Provider-side billing savings.** We estimate tokens as `chars / 4`.
-  Real savings depend on model, tokenizer, and session shape.
-- **Decision Replay at scale.** Framework exists, 25 scenarios defined,
-  full eval pending.
-
-See [`docs/real-session-replay-eval.md`](docs/real-session-replay-eval.md)
-for the compression replay methodology and
-[`docs/context-structure-and-intervention.md`](docs/context-structure-and-intervention.md)
-for an honest breakdown of what oh-my-brain can and can't influence.
+See [benchmark methodology](docs/real-session-replay-eval.md) and
+[LongMemEval details](docs/longmemeval-500-oracle.md).
 
 ## FAQ
 
-### Why not just use Claude's memory tool?
+**Why not Claude's built-in memory?**
+Single-agent. Switch to Codex, it's gone. oh-my-brain is portable —
+`.brain/` lives with your project and every tool reads it.
 
-Claude's memory tool is single-agent. It lives inside Claude. When you
-switch to Codex, it's gone. oh-my-brain writes to a portable `.brain/` directory
-that lives in your project, readable by Claude, Codex, Cursor, or any
-future tool. It's also importance-aware — Claude's memory treats all
-stored items equally; oh-my-brain protects L3 directives from
-compression in a way Claude memory cannot, and surfaces soft signals
-via Memory Candidates.
+**Why not Mem0 / Zep / Letta?**
+Those are memory stores. oh-my-brain is a brain — it classifies what
+matters, grows skills from corrections, and hands off context across
+sessions. Different category.
 
-### Why not just use Memorix / Mem0 / Memori?
-
-These are memory stores. They store your data, retrieve it on demand,
-and treat all data roughly equally. oh-my-brain is a brain — it actively
-classifies importance, protects critical rules from being forgotten,
-compresses noise, and asks you about the fuzzy cases via Memory
-Candidates. The difference matters when you have rules that **must**
-survive context resets, not just data that's nice to recall.
-
-### Do you use LLMs to classify messages?
-
-Not yet. The current classifier is 100% regex heuristics — fast (<1ms
-per message), deterministic, zero API cost. An LLM fallback for
-ambiguous cases (likely Haiku) is on the roadmap. The architecture is
-ready for it; the release isn't.
-
-### What about privacy?
-
-Everything is local. No cloud. No API keys. No telemetry. `MEMORY.md`
-lives in your project directory. The PGLite database lives in `.squeeze/brain.pg/`
-(gitignored by default). You can inspect, edit, commit, or delete any of it.
-
-### Is the L3 classifier safe against prompt injection?
-
-MEMORY.md is a trust boundary. If a malicious document in your workspace
-gets classified as an L3 directive, it will be protected forever. We
-recommend:
-
-1. Treat `MEMORY.md` as code — review it in PRs
-2. Rely on the heuristic injection guard for low-hanging prompt-injection,
-   exfiltration, invisible-unicode, and script-tag patterns, but do not
-   treat it as bulletproof
-3. Use `brain-candidates` review queue for anything uncertain
-4. Run `brain-audit` regularly to inspect recent memory writes
-
-## Current status (v0.9.0)
-
-**Shipped:**
-
-- [x] Importance-aware classification (L0-L3) with auto-learning
-- [x] Memory Candidates review queue with confidence-based auto-save
-- [x] Cognitive memory: events, viewpoints, habits, relations, schemas
-- [x] Self-growing ontology (types + links + auto-consolidation)
-- [x] Knowledge graph with multi-hop traversal (PGLite)
-- [x] MCP server (15+ tools over stdio JSON-RPC)
-- [x] Cross-agent handoff (Claude Code, Codex, Cursor, Windsurf)
-- [x] Decision Replay eval framework (`oh-my-brain eval`)
-- [x] Offline growth loop (`brain-consolidate`)
-- [x] 755 tests passing
-
-**Next:**
-
-- [x] Full 500-question LongMemEval run
-- [ ] Live telemetry (opt-in, local only)
-- [ ] LLM-backed classifier for ambiguous cases
-- [ ] Landing page at ohmybrain.dev
-
-See [`TODOS.md`](TODOS.md) for the full roadmap.
-
-## Running tests
-
-```bash
-npm test           # watch mode
-npm run test:run   # single run
-npm run verify     # lint + tests + build + pack dry-run
-```
+**Privacy?**
+Everything local. No cloud, no API keys, no telemetry. `.brain/` is
+gitignored by default. You own your data.
 
 ## Architecture
 
-oh-my-brain uses PGLite (embedded PostgreSQL) — real PostgreSQL
-running in your Node.js process. Zero setup, zero Docker, zero
-cloud. But when you need to scale, change one connection string
-to migrate to Supabase or any managed PostgreSQL.
+oh-my-brain uses PGLite (embedded PostgreSQL) for the knowledge graph.
+Zero setup, zero Docker. The `.brain/` directory is plain markdown on
+top — human-readable, git-friendly, portable.
 
-### `.brain/` Cognitive Model (v0.9)
-
-oh-my-brain organizes memory as a structured `.brain/` directory — identity,
-goals, domains, projects, skills, and episodes. Instead of a flat file,
-memories live where they belong: `domains/work.md`, `projects/my-app.md`,
-`skills/code-review.md`.
-
-- `brain_migrate` converts existing MEMORY.md into `.brain/` on first run
-- New directives auto-route to the matching domain or project
-- Sessions project relevant context into working memory (MEMORY.md)
-- Skills auto-generate from repeated corrections and multi-step procedures
-- Cross-session handoff via `brain_handoff` in project files
-
-**Why files, not a database:** You can see the structure in your file
-explorer, edit anything in a text editor, and delete a skill by deleting
-a file. No query language needed.
-
-- **Knowledge Graph** — Every memory (event, directive, person,
-  habit, schema) is a node. Every relationship is an edge.
-  Multi-hop traversal finds connections you didn't know existed.
-- **PostgreSQL-native** — TEXT[], JSONB, TIMESTAMPTZ, recursive
-  CTE, proper indexes. Not SQLite pretending to be a database.
-- **One schema, multiple backends** — Same schema works on PGLite
-  (local), PostgreSQL (self-hosted), or Supabase (managed cloud).
-
-## Runtime requirements
-
-- Node.js 20 – 25 (recommended: Node 22 LTS)
-- No native binary dependencies (PGLite is pure JS/WASM)
+```bash
+npm test           # watch mode
+npm run test:run   # single run (755 tests)
+npm run verify     # lint + tests + build + pack
+```
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-For commercial licensing inquiries, contact: hs.ze.lab@gmail.com
+## Learn more
 
-## See also
-
-- [`docs/why-memory-candidates.md`](docs/why-memory-candidates.md) — the origin story for the core insight
-- [`docs/cross-agent-demo.md`](docs/cross-agent-demo.md) — reproducible handoff demo
-- [`docs/context-structure-and-intervention.md`](docs/context-structure-and-intervention.md) — honest scope of what oh-my-brain controls
-- [`docs/real-session-replay-eval.md`](docs/real-session-replay-eval.md) — benchmark methodology
+- [Why Memory Candidates](docs/why-memory-candidates.md) — the origin story
+- [Cross-agent handoff demo](docs/cross-agent-demo.md)
+- [What oh-my-brain can and can't control](docs/context-structure-and-intervention.md)
