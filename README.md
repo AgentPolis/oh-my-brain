@@ -10,7 +10,7 @@
 ├── identity.md       ← who you are (stable across everything)
 ├── goals.md          ← where you're headed
 ├── domains/work.md   ← your work persona + standards
-├── projects/my-app.md← progress + handoff log
+├── projects/my-app.md ← progress + handoff log
 ├── skills/           ← auto-generated from corrections & patterns
 └── episodes/         ← lessons learned (searchable)
 ```
@@ -125,8 +125,11 @@ travel with you via a portable `.brain/` directory plus an MCP server.
 | LongMemEval              | 49-91%                      | 67.6% official 500q oracle, 92% on 50q temporal subset |
 | Startup cost             | Load everything (~2K+ tokens) | ~100 token summary, lazy load on demand        |
 | Decision benchmark       | Retrieval accuracy only     | Decision Replay: does the agent think like you?   |
-| Cross-agent              | Sometimes                   | Native via MCP + portable `MEMORY.md`              |
-| Trust model              | Black box                   | Plain text `MEMORY.md` you can inspect, edit, commit |
+| Handoff                  | Manual re-prompting         | `brain_handoff` — structured session state with decisions + next steps |
+| Skill growth             | Static prompts              | Auto-generates skill files from corrections and multi-step completions |
+| Working memory           | Dump everything             | Intelligent projection: stable content cached, dynamic content per-session |
+| Cross-agent              | Sometimes                   | Native via MCP + portable `.brain/` directory      |
+| Trust model              | Black box                   | Plain text `.brain/` you can inspect, edit, commit |
 | vs MemPalace             | 170 token startup, spatial metaphor, 96.6% LongMemEval (uncompressed mode) | ~100 token startup, importance classification, Decision Replay benchmark |
 | Origin                   | Built from spec             | Built from real-use frustration                    |
 
@@ -152,6 +155,7 @@ oh-my-brain recall
 
 That is the core promise in miniature: portable, inspectable memory
 that survives agent switches because it lives with your project.
+Run `brain-mcp` then call `brain_migrate` to convert to the full `.brain/` structure.
 
 After install, you get these binaries:
 
@@ -261,16 +265,23 @@ Point any MCP client at the `brain-mcp` binary:
 }
 ```
 
-The client gets core tools including:
+The client gets these tools:
 
-- `brain_remember` — write a new L3 directive
-- `brain_recall` — read active directives plus an archive/timeline preview
+- `brain_remember` — write a directive (auto-routes to identity/domain/project)
+- `brain_recall` — read active directives, search episodes and skills
 - `brain_search` — search archived full-text history by date or keyword
 - `brain_candidates` — list, add, approve, or reject Memory Candidates
 - `brain_retire` — move a stale directive into the archive section
 - `brain_status` — counts and health info
-- `brain_quiz` — generate a decision scenario to test whether the
-  agent thinks like you
+- `brain_quiz` — generate a decision scenario to test whether the agent thinks like you
+- `brain_handoff` — record session state for cross-session continuity
+- `brain_projects` — list all projects with status and last handoff
+- `brain_refresh` — reassemble MEMORY.md from `.brain/`
+- `brain_migrate` — convert legacy MEMORY.md into `.brain/` structure
+- `brain_audit` — human-readable brain health report
+- `brain_export` — export `.brain/` as portable JSON bundle
+- `brain_import` — import a `.brain/` bundle into current project
+- `brain_skills` — list auto-generated skill files
 
 ### As an OpenClaw plugin
 
@@ -282,26 +293,27 @@ api.registerContextEngine("oh-my-brain", ohMyBrainFactory);
 
 ## The MEMORY.md contract
 
-oh-my-brain's durable storage is just a markdown file:
+oh-my-brain's durable storage is a `.brain/` directory:
 
-```markdown
-## oh-my-brain directives (2026-04-06) [source:claude session:abc-123]
-
-- [claude abc-123] Always use TypeScript strict mode
-- [claude abc-123] Never commit generated files
-
-## oh-my-brain directives (2026-04-06) [source:codex session:xyz-456]
-
-- [codex xyz-456] Always parameterize SQL queries
 ```
+.brain/
+├── identity.md        ← who you are
+├── goals.md           ← where you're headed
+├── domains/work.md    ← domain-specific standards
+├── projects/my-app.md ← handoff log + progress
+├── skills/            ← auto-generated from corrections
+└── episodes/          ← lessons learned
+```
+
+`MEMORY.md` still exists as an auto-generated working memory projection
+for agents that read flat files. But `.brain/` is the source of truth.
 
 It's deliberately boring:
 
-- easy to inspect
-- easy to diff
-- easy to commit to git
-- every agent can read it — the schema is the file format itself
-- you can hand-edit it and oh-my-brain will respect your edits
+- easy to inspect (it's just markdown files)
+- easy to diff and commit to git
+- every agent can read it
+- you can hand-edit any file and oh-my-brain will respect your edits
 
 No database lock-in, no cloud, no API keys.
 
@@ -391,7 +403,7 @@ for an honest breakdown of what oh-my-brain can and can't influence.
 ### Why not just use Claude's memory tool?
 
 Claude's memory tool is single-agent. It lives inside Claude. When you
-switch to Codex, it's gone. oh-my-brain writes to a portable `MEMORY.md`
+switch to Codex, it's gone. oh-my-brain writes to a portable `.brain/` directory
 that lives in your project, readable by Claude, Codex, Cursor, or any
 future tool. It's also importance-aware — Claude's memory treats all
 stored items equally; oh-my-brain protects L3 directives from
@@ -442,11 +454,11 @@ recommend:
 - [x] Cognitive memory: events, viewpoints, habits, relations, schemas
 - [x] Self-growing ontology (types + links + auto-consolidation)
 - [x] Knowledge graph with multi-hop traversal (PGLite)
-- [x] MCP server (9 tools over stdio JSON-RPC)
+- [x] MCP server (15+ tools over stdio JSON-RPC)
 - [x] Cross-agent handoff (Claude Code, Codex, Cursor, Windsurf)
 - [x] Decision Replay eval framework (`oh-my-brain eval`)
 - [x] Offline growth loop (`brain-consolidate`)
-- [x] 594 tests passing
+- [x] 755 tests passing
 
 **Next:**
 
@@ -472,21 +484,22 @@ running in your Node.js process. Zero setup, zero Docker, zero
 cloud. But when you need to scale, change one connection string
 to migrate to Supabase or any managed PostgreSQL.
 
-### Domain-Based Memory (v0.8)
+### `.brain/` Cognitive Model (v0.9)
 
-oh-my-brain organizes memory by **domains** — the way human brains naturally
-compartmentalize knowledge (Tulving 1973). Instead of a flat file, memories
-live in `memory/work.md`, `memory/investing.md`, etc.
+oh-my-brain organizes memory as a structured `.brain/` directory — identity,
+goals, domains, projects, skills, and episodes. Instead of a flat file,
+memories live where they belong: `domains/work.md`, `projects/my-app.md`,
+`skills/code-review.md`.
 
-- Agent auto-creates domains from existing MEMORY.md on first run
-- New directives auto-route to the matching domain via keyword matching
-- Sessions only load relevant domains (work session → work memories)
-- `MEMORY.md` remains as an auto-generated compatibility shim
-- MCP tools support `domain` parameter for filtered read/write
+- `brain_migrate` converts existing MEMORY.md into `.brain/` on first run
+- New directives auto-route to the matching domain or project
+- Sessions project relevant context into working memory (MEMORY.md)
+- Skills auto-generate from repeated corrections and multi-step procedures
+- Cross-session handoff via `brain_handoff` in project files
 
-**Why domains, not tags:** Files > metadata. You can see domains in your
-file explorer, edit them in any text editor, and delete a domain by
-deleting a file. No query language needed.
+**Why files, not a database:** You can see the structure in your file
+explorer, edit anything in a text editor, and delete a skill by deleting
+a file. No query language needed.
 
 - **Knowledge Graph** — Every memory (event, directive, person,
   habit, schema) is a node. Every relationship is an edge.
