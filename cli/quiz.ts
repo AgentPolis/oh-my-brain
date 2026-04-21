@@ -9,6 +9,7 @@ import {
   type DecisionScenario,
 } from "./eval.js";
 import { OhMyBrainAdapter } from "../eval/decision-replay/adapter.js";
+import { resolveSystemRoot } from "../src/scope.js";
 
 export interface QuizHistoryEntry {
   ts: string;
@@ -38,7 +39,7 @@ export interface QuizHistorySummary {
 }
 
 function historyPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "quiz-history.jsonl");
+  return join(resolveSystemRoot(projectRoot), "quiz-history.jsonl");
 }
 
 export function loadQuizHistory(projectRoot: string): QuizHistoryEntry[] {
@@ -60,7 +61,7 @@ export function appendQuizHistory(
   projectRoot: string,
   entry: QuizHistoryEntry
 ): void {
-  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  mkdirSync(resolveSystemRoot(projectRoot), { recursive: true });
   appendFileSync(historyPath(projectRoot), JSON.stringify(entry) + "\n");
 }
 

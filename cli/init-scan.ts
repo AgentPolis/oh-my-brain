@@ -13,6 +13,7 @@ import {
   isOnboarded,
   saveOnboardingConfig,
 } from "./onboarding.js";
+import { resolveMemoryPath, resolveMemoryScope } from "../src/scope.js";
 
 interface InitSummary {
   directives: string[];
@@ -79,7 +80,7 @@ function buildInitSummary(projectRoot: string): InitSummary {
     sources.push({ name: "project config", count: projectRules.length });
   }
 
-  const existingMemory = join(projectRoot, "MEMORY.md");
+  const existingMemory = resolveMemoryPath(projectRoot);
   if (existsSync(existingMemory)) {
     const existingCount = parseExistingDirectives(readFileSync(existingMemory, "utf8")).size;
     sources.push({ name: "MEMORY.md", count: existingCount });
@@ -147,11 +148,6 @@ export async function runInitCli(argv: string[], projectRoot: string): Promise<n
       const picked = options.find((o) => o.key === answer.trim().toUpperCase()) ?? options[0];
 
       if (picked.choice.action === "skip-workspace") {
-        saveOnboardingConfig(projectRoot, {
-          brainPath: join(projectRoot, "MEMORY.md"),
-          onboardedAt: new Date().toISOString(),
-          environment: "workspace",
-        });
         process.stdout.write("\n[brain] 已跳過。在各專案目錄跑 oh-my-brain init 來分別設定。\n");
         return 0;
       }
@@ -165,7 +161,7 @@ export async function runInitCli(argv: string[], projectRoot: string): Promise<n
     } else {
       // Non-interactive or single option — just save default
       saveOnboardingConfig(projectRoot, {
-        brainPath: join(projectRoot, "MEMORY.md"),
+        brainPath: resolveMemoryPath(projectRoot),
         onboardedAt: new Date().toISOString(),
         environment: env.isWorkspace ? "workspace" : env.isProjectRoot ? "project" : "directory",
       });
@@ -195,8 +191,9 @@ export async function runInitCli(argv: string[], projectRoot: string): Promise<n
     skipped += reviewed.skipped;
   }
 
-  const existingDirectives = existsSync(join(projectRoot, "MEMORY.md"))
-    ? parseExistingDirectives(readFileSync(join(projectRoot, "MEMORY.md"), "utf8"))
+  const memoryPath = resolveMemoryPath(projectRoot);
+  const existingDirectives = existsSync(memoryPath)
+    ? parseExistingDirectives(readFileSync(memoryPath, "utf8"))
     : new Set<string>();
   directivesToWrite = directivesToWrite.filter((directive) => !existingDirectives.has(directive));
 

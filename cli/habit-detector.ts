@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { join } from "path";
+import { resolveSystemRoot } from "../src/scope.js";
 import { type BrainEvent } from "../src/storage/events.js";
 import { jaccard, tokenSet } from "./links-store.js";
 
@@ -87,7 +88,7 @@ export function detectHabits(events: BrainEvent[], existingHabits: Habit[]): Hab
 }
 
 export function loadHabits(projectRoot: string): Habit[] {
-  const path = join(projectRoot, ".squeeze", HABITS_FILE);
+  const path = join(resolveSystemRoot(projectRoot), HABITS_FILE);
   if (!existsSync(path)) return [];
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as HabitFile;
@@ -98,7 +99,7 @@ export function loadHabits(projectRoot: string): Habit[] {
 }
 
 export function saveHabits(projectRoot: string, habits: Habit[]): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, HABITS_FILE);
   const tmp = `${path}.tmp`;

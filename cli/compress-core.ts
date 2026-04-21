@@ -11,6 +11,7 @@ import {
 import { createHash, randomUUID } from "crypto";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
+import { resolveMemoryPath, resolveMemoryScope, resolveSystemRoot } from "../src/scope.js";
 import { classify } from "../src/triage/classifier.js";
 import { persistDirectives } from "../src/storage/directives.js";
 import { Level } from "../src/types.js";
@@ -27,14 +28,10 @@ import { withLock } from "./lockfile.js";
 import { hasBrainDir, brainRemember, refreshMemoryMd, resolveBrainPaths } from "./brain-store.js";
 
 /**
- * Resolve the squeeze directory path.
- * v2: if .brain/ exists, use .brain/.squeeze/ instead of .squeeze/
+ * Resolve the canonical hidden system state directory.
  */
 function resolveSqueezeDir(projectRoot: string): string {
-  if (hasBrainDir(projectRoot)) {
-    return join(projectRoot, ".brain", ".squeeze");
-  }
-  return resolveSqueezeDir(projectRoot);
+  return resolveSystemRoot(projectRoot);
 }
 import { ArchiveStore, extractTags } from "../src/storage/archive.js";
 import { EventStore, type BrainEvent } from "../src/storage/events.js";
@@ -85,7 +82,7 @@ Behavior:
     (preference), L3 (directive)
   - compresses stale L1 observations
   - writes new L3 directives into ./MEMORY.md
-  - queues soft signals (corrections, preferences) into .squeeze/candidates.json
+  - queues soft signals (corrections, preferences) into .brain/system/candidates.json
     for review via brain-candidates list/approve/reject
 
 Notes:
@@ -182,7 +179,7 @@ export function resolveMemoryPaths(projectRoot: string): DomainMemoryPath[] {
     }));
   }
 
-  const flatPath = join(projectRoot, "MEMORY.md");
+  const flatPath = resolveMemoryPath(projectRoot);
   if (existsSync(flatPath)) {
     return [{ domain: "_flat", path: flatPath }];
   }
@@ -221,7 +218,7 @@ export function generateMemoryShim(projectRoot: string): void {
   }
 
   const merged = parts.join("\n\n") + "\n";
-  const outputPath = join(projectRoot, "MEMORY.md");
+  const outputPath = resolveMemoryPath(projectRoot);
   const tmpPath = outputPath + ".tmp";
   writeFileSync(tmpPath, merged, "utf8");
   renameSync(tmpPath, outputPath);
@@ -1310,7 +1307,7 @@ export function detectAndStoreSchemas(projectRoot: string): SchemaWriteResult {
     return { detected: 0, total: existing.total, candidates: [] };
   }
 
-  const memoryPath = join(projectRoot, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(projectRoot);
   const directives = existsSync(memoryPath)
     ? Array.from(parseExistingDirectives(readFileSync(memoryPath, "utf8")))
     : [];
@@ -1386,7 +1383,7 @@ export async function main() {
     autoCreateDomains(cwd);
   }
   // Phase 1: write path unchanged — still writes to flat MEMORY.md.
-  const memoryPath = join(cwd, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(cwd);
   const sessionId = sessionPath.split("/").pop()?.replace(".jsonl", "") ?? sessionPath;
   const directivesWritten = await writeDirectivesToMemory(processed, memoryPath, {
     source: "claude",

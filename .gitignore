@@ -19,3 +19,6 @@ docs/research/
 docs/longmemeval-*.md
 docs/longmemeval-failure-buckets/
 .npmrc
+.tmp-openai-eval.env
+.openai-eval.env
+data/

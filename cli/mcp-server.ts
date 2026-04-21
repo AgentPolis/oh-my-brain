@@ -36,6 +36,7 @@
 
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { basename, join } from "path";
+import { resolveMemoryPath, resolveSystemRoot } from "../src/scope.js";
 import { OutcomeStore } from "../src/storage/outcomes.js";
 import { ProcedureStore } from "../src/storage/procedures.js";
 import { extractProcedure } from "../src/procedure/extractor.js";
@@ -686,7 +687,7 @@ function projectRoot(): string {
 }
 
 function memoryPath(): string {
-  return join(projectRoot(), "MEMORY.md");
+  return resolveMemoryPath(projectRoot());
 }
 
 type ToolContent = { type: "text"; text: string };
@@ -796,10 +797,9 @@ async function handleBrainRemember(args: Record<string, unknown>): Promise<{ con
 
     // Low confidence → route to candidates for user review
     if (result.needsReview) {
-      const squeezeDir = join(root, ".brain", ".squeeze");
-      const store = loadCandidateStore(squeezeDir);
+      const store = loadCandidateStore(root);
       ingestCandidates(store, [text], { source, sessionId, projectRoot: root });
-      saveCandidateStore(squeezeDir, store);
+      saveCandidateStore(root, store);
       return textResult(
         `low confidence (${(result.confidence * 100).toFixed(0)}%) — saved as candidate for review. ` +
         `Suggested layer: ${result.layer}/${result.target}. ` +
@@ -921,9 +921,9 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
     const categories = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([typeId, count]) => `${typeId} (${count})`);
-    const events = new EventStore(join(projectRoot(), ".squeeze"));
-    const relations = new RelationStore(join(projectRoot(), ".squeeze"));
-    const schemas = new SchemaStore(join(projectRoot(), ".squeeze"));
+    const events = new EventStore(resolveSystemRoot(projectRoot()));
+    const relations = new RelationStore(resolveSystemRoot(projectRoot()));
+    const schemas = new SchemaStore(resolveSystemRoot(projectRoot()));
     const habits = loadHabits(projectRoot());
     const eventSummary = events.getSummary();
     const viewpointsCaptured = events.searchByCategory("viewpoint").length;
@@ -964,9 +964,9 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
       lines.push(`  Categories: ${categoriesSummary}`);
       lines.push("  Use brain_search --when/--query/--who/--category for details.");
     }
-    const archive = new ArchiveStore(join(projectRoot(), ".squeeze"));
+    const archive = new ArchiveStore(resolveSystemRoot(projectRoot()));
     const archiveSummary = archive.getSummary();
-    const timeline = new TimelineIndex(join(projectRoot(), ".squeeze"));
+    const timeline = new TimelineIndex(resolveSystemRoot(projectRoot()));
     const timelineBounds = timeline.bounds();
     if (archiveSummary.count > 0 && timelineBounds) {
       const recent = timeline
@@ -1032,7 +1032,7 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
 
   // Append cautions from outcome store
   const outcomeRoot = projectRoot();
-  const outcomeStore = new OutcomeStore(join(outcomeRoot, ".squeeze"));
+  const outcomeStore = new OutcomeStore(resolveSystemRoot(outcomeRoot));
   const cautions = outcomeStore.findRelevant(output, 3);
   if (cautions.length > 0) {
     const cautionLines = cautions.map(
@@ -1042,7 +1042,7 @@ async function handleBrainRecall(args: Record<string, unknown>): Promise<{ conte
   }
 
   // Append relevant procedures
-  const procedureStore = new ProcedureStore(join(outcomeRoot, ".squeeze"));
+  const procedureStore = new ProcedureStore(resolveSystemRoot(outcomeRoot));
   const matchedProcedure = procedureStore.findApprovedByTrigger(output);
   if (matchedProcedure) {
     const stepLines = matchedProcedure.steps.map((s) => `${s.order}. ${s.action}`);
@@ -1132,10 +1132,10 @@ async function handleBrainCandidates(args: Record<string, unknown>): Promise<{ c
 
 async function handleBrainSearch(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const root = projectRoot();
-  const archive = new ArchiveStore(join(root, ".squeeze"));
-  const events = new EventStore(join(root, ".squeeze"));
-  const relations = new RelationStore(join(root, ".squeeze"));
-  const schemas = new SchemaStore(join(root, ".squeeze"));
+  const archive = new ArchiveStore(resolveSystemRoot(root));
+  const events = new EventStore(resolveSystemRoot(root));
+  const relations = new RelationStore(resolveSystemRoot(root));
+  const schemas = new SchemaStore(resolveSystemRoot(root));
   const archiveSummary = archive.getSummary();
   const eventSummary = events.getSummary();
 
@@ -1152,7 +1152,7 @@ async function handleBrainSearch(args: Record<string, unknown>): Promise<{ conte
 
   if (connected) {
     try {
-      const pgDir = join(root, ".squeeze", "brain.pg");
+      const pgDir = join(resolveSystemRoot(root), "brain.pg");
       const db = await pgliteFactory.create(pgDir);
       try {
         await initPgSchema(db);
@@ -1225,7 +1225,7 @@ async function handleBrainSearch(args: Record<string, unknown>): Promise<{ conte
     return textResult(formatSearchResults(eventMatches, [], `category: ${category}`, limit));
   }
 
-  const timeline = new TimelineIndex(join(root, ".squeeze"));
+  const timeline = new TimelineIndex(resolveSystemRoot(root));
   const timelineSummary = timeline.toCompactString();
   const eventTimeline = events.toTimelineString(6);
   if (eventTimeline && timelineSummary) {
@@ -1458,7 +1458,7 @@ async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
   const estimatedTokens = Math.round(
     activeBullets.reduce((sum, bullet) => sum + bullet.body.length, 0) / 4
   );
-  const guardLogPath = join(root, ".squeeze", "guard-blocked.jsonl");
+  const guardLogPath = join(resolveSystemRoot(root), "guard-blocked.jsonl");
   const guardBlockedTotal = existsSync(guardLogPath)
     ? readFileSync(guardLogPath, "utf8")
         .split("\n")
@@ -1467,7 +1467,7 @@ async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
   const mergeProposalsPending = listCandidates(store, { status: "pending" }).filter((candidate) =>
     candidate.text.startsWith("MERGE:")
   ).length;
-  const lastScanPath = join(root, ".squeeze", "last-scan.json");
+  const lastScanPath = join(resolveSystemRoot(root), "last-scan.json");
   let lastOntologyScan: string | null = null;
   if (existsSync(lastScanPath)) {
     try {
@@ -1483,19 +1483,19 @@ async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
       : pending > 5 || mergeProposalsPending > 0
         ? "needs_review"
         : "healthy";
-  const archive = new ArchiveStore(join(root, ".squeeze"));
+  const archive = new ArchiveStore(resolveSystemRoot(root));
   const archiveSummary = archive.getSummary();
   const archiveSizeKb = Math.round(archive.getSizeBytes() / 1024);
-  const events = new EventStore(join(root, ".squeeze"));
+  const events = new EventStore(resolveSystemRoot(root));
   const eventSummary = events.getSummary();
   const eventCategories = Object.entries(eventSummary.categories)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([category, count]) => `${category}(${count})`)
     .join(" ");
   const habits = loadHabits(root);
-  const relations = new RelationStore(join(root, ".squeeze"));
+  const relations = new RelationStore(resolveSystemRoot(root));
   const relationSummary = relations.getSummary();
-  const schemas = new SchemaStore(join(root, ".squeeze"));
+  const schemas = new SchemaStore(resolveSystemRoot(root));
   const schemaSummary = schemas.getSummary();
   const viewpointsCaptured = events.searchByCategory("viewpoint").length;
   const growth = buildGrowthSnapshot(root);
@@ -1561,7 +1561,7 @@ async function handleBrainStatus(): Promise<{ content: ToolContent[] }> {
 
   // Graph summary
   try {
-    const pgDir = join(root, ".squeeze", "brain.pg");
+    const pgDir = join(resolveSystemRoot(root), "brain.pg");
     const graphDb = await pgliteFactory.create(pgDir);
     try {
       await initPgSchema(graphDb);
@@ -2001,7 +2001,7 @@ async function handleBrainSaveProcedure(args: Record<string, unknown>): Promise<
     });
 
   const procedure = extractProcedure(messages, title, trigger, sessionId);
-  const store = new ProcedureStore(join(root, ".squeeze"));
+  const store = new ProcedureStore(resolveSystemRoot(root));
   store.append(procedure);
 
   const stepCount = procedure.steps.length;
@@ -2015,7 +2015,7 @@ async function handleBrainSaveProcedure(args: Record<string, unknown>): Promise<
 async function handleBrainProcedures(args: Record<string, unknown>): Promise<{ content: ToolContent[] }> {
   const action = typeof args.action === "string" ? args.action : "list";
   const root = projectRoot();
-  const store = new ProcedureStore(join(root, ".squeeze"));
+  const store = new ProcedureStore(resolveSystemRoot(root));
 
   if (action === "list") {
     const all = store.getAll();

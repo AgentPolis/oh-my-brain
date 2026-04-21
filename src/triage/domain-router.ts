@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
+import { resolveMemoryPath } from "../scope.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -374,7 +375,7 @@ export function autoCreateDomains(projectRoot: string): AutoCreateResult {
   }
 
   // Parse MEMORY.md bullet lines
-  const memoryPath = join(projectRoot, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(projectRoot);
   const directives: string[] = [];
 
   if (existsSync(memoryPath)) {

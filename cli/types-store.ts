@@ -20,7 +20,7 @@
  *    name and example list. The user approves, edits, or rejects via
  *    `brain-candidates list-types` / `approve-type` / `reject-type`.
  *    Approved types append to a user-defined registry at
- *    `.squeeze/types.json` and immediately get the same first-class
+ *    `.brain/system/types.json` and immediately get the same first-class
  *    treatment as built-in types.
  *
  * Why this matters:
@@ -31,9 +31,9 @@
  *   Palantir's actual deployments look like in practice.
  *
  * Storage:
- *   - User-defined types live at `.squeeze/types.json` (additive only;
+ *   - User-defined types live at `.brain/system/types.json` (additive only;
  *     this file is hand-editable)
- *   - Type Candidates live at `.squeeze/type-candidates.json`
+ *   - Type Candidates live at `.brain/system/type-candidates.json`
  *
  * Mutations to either file should go through Actions (Phase 4c) so
  * the audit trail covers schema evolution as well as data changes.
@@ -43,6 +43,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { createHash } from "crypto";
 import { join } from "path";
+import { resolveSystemRoot } from "../src/scope.js";
 
 // ── Directive Type definitions ───────────────────────────────────
 
@@ -141,7 +142,7 @@ interface UserTypesFile {
 const EMPTY_USER_TYPES: UserTypesFile = { version: 1, types: [] };
 
 function userTypesPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "types.json");
+  return join(resolveSystemRoot(projectRoot), "types.json");
 }
 
 export function loadUserTypes(projectRoot: string): DirectiveTypeSchema[] {
@@ -160,7 +161,7 @@ export function saveUserTypes(
   projectRoot: string,
   types: DirectiveTypeSchema[]
 ): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = userTypesPath(projectRoot);
   const tmp = path + ".tmp";
@@ -232,7 +233,7 @@ interface TypeCandidateStore {
 const EMPTY_CANDIDATE_STORE: TypeCandidateStore = { version: 1, candidates: {} };
 
 function typeCandidatesPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "type-candidates.json");
+  return join(resolveSystemRoot(projectRoot), "type-candidates.json");
 }
 
 export function loadTypeCandidates(projectRoot: string): TypeCandidateStore {
@@ -253,7 +254,7 @@ export function saveTypeCandidates(
   projectRoot: string,
   store: TypeCandidateStore
 ): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = typeCandidatesPath(projectRoot);
   const tmp = path + ".tmp";
@@ -499,8 +500,9 @@ export function scanForTypeCandidates(
   directiveBodies: string[],
   threshold = 3
 ): TypeCandidateRecord[] {
-  const stampPath = join(projectRoot, ".squeeze", "last-scan.json");
-  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  const systemRoot = resolveSystemRoot(projectRoot);
+  const stampPath = join(systemRoot, "last-scan.json");
+  mkdirSync(systemRoot, { recursive: true });
   writeFileSync(`${stampPath}.tmp`, JSON.stringify({ ts: new Date().toISOString() }, null, 2));
   renameSync(`${stampPath}.tmp`, stampPath);
 

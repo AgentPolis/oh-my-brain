@@ -153,11 +153,18 @@ To verify it worked, let Codex finish a session and confirm that
 
 Real numbers on real datasets.
 
-Primary public benchmark: **67.6% (338/500)** on the full LongMemEval
-oracle suite.
+Primary public benchmark: **89.4% (447/500)** on the full LongMemEval
+oracle suite, evaluated with LongMemEval's official `evaluate_qa.py`
+judge (`gpt-4o`).
 
-Secondary result: **92% (46/50)** on the oracle temporal-reasoning
-subset.
+Per-type breakdown:
+
+- `single-session-assistant`: **100.0%** (`56/56`)
+- `single-session-user`: **98.6%** (`69/70`)
+- `knowledge-update`: **89.7%** (`70/78`)
+- `temporal-reasoning`: **89.5%** (`119/133`)
+- `multi-session`: **83.5%** (`111/133`)
+- `single-session-preference`: **73.3%** (`22/30`)
 
 Other checks:
 

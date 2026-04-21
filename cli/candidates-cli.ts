@@ -4,7 +4,7 @@
  *
  * This is the human-in-the-loop half of the two-stage capture model.
  * Soft-signal candidates detected during compress runs accumulate in
- * `.squeeze/candidates.json`. Use this CLI to approve them (promote to
+ * `.brain/system/candidates.json`. Use this CLI to approve them (promote to
  * MEMORY.md as real directives), reject them (never surface again), or
  * list what's pending.
  *
@@ -90,12 +90,12 @@ History:
 Candidate IDs are content hashes; you can use any unique prefix.
 
 Every approve / reject / retire is a typed Action with full provenance.
-The action log lives at .squeeze/actions.jsonl. Use 'undo' to reverse
+The action log lives at .brain/system/actions.jsonl. Use 'undo' to reverse
 the latest action and 'why' to trace the chain that produced a directive.
 
 Type candidates are auto-proposed when 3+ uncategorized directives share
 a recognizable keyword cluster. Approving a candidate adds a new
-Directive Type to .squeeze/types.json that future directives will be
+Directive Type to .brain/system/types.json that future directives will be
 classified against.
 `;
 

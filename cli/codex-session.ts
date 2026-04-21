@@ -11,6 +11,7 @@ import { dirname, join } from "path";
 import { appendProjectRunLog, extractMemoryCandidates, processMessages, writeDirectivesToMemory } from "./compress-core.js";
 import { writeLatestAudit } from "./audit.js";
 import { ingestCandidates, loadCandidateStore, saveCandidateStore } from "./candidates.js";
+import { resolveMemoryPath, resolveScopeRoot } from "../src/scope.js";
 
 interface CodexTextBlock {
   type: string;
@@ -284,7 +285,8 @@ export async function syncCodexSessions(options: CodexSyncOptions = {}): Promise
     }
 
     const processed = processMessages(parsed.entries as never[]);
-    const memoryPath = join(parsed.cwd, "MEMORY.md");
+    const scopeRoot = resolveScopeRoot(parsed.cwd);
+    const memoryPath = resolveMemoryPath(parsed.cwd);
     const directivesWritten = await writeDirectivesToMemory(processed, memoryPath, {
       source: "codex",
       sessionId: parsed.sessionId,
@@ -294,13 +296,13 @@ export async function syncCodexSessions(options: CodexSyncOptions = {}): Promise
     // Persist candidates into the per-project store so Codex-detected soft
     // signals show up in `brain-candidates list` alongside Claude Code ones.
     if (memoryCandidates.length > 0) {
-      const candidateStore = loadCandidateStore(parsed.cwd);
+      const candidateStore = loadCandidateStore(scopeRoot);
       ingestCandidates(candidateStore, memoryCandidates, {
         source: "codex",
         sessionId: parsed.sessionId,
-        projectRoot: parsed.cwd,
+        projectRoot: scopeRoot,
       });
-      saveCandidateStore(parsed.cwd, candidateStore);
+      saveCandidateStore(scopeRoot, candidateStore);
     }
 
     const originalChars = processed.reduce((sum, item) => sum + item.originalText.length, 0);

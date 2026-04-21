@@ -30,8 +30,8 @@
  *    edits the proposed kind.
  *
  * Storage:
- *   - Approved links live at `.squeeze/links.json`
- *   - Link candidates live at `.squeeze/link-candidates.json`
+ *   - Approved links live at `.brain/system/links.json`
+ *   - Link candidates live at `.brain/system/link-candidates.json`
  *
  * Mutations to either file go through Actions in cli/actions.ts so the
  * audit trail covers the relation graph as well as data and types.
@@ -40,6 +40,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { createHash } from "crypto";
 import { join } from "path";
+import { resolveSystemRoot } from "../src/scope.js";
 
 // ── Link kinds ──────────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ interface LinksFile {
 const EMPTY_LINKS: LinksFile = { version: 1, links: [] };
 
 function linksPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "links.json");
+  return join(resolveSystemRoot(projectRoot), "links.json");
 }
 
 export function loadLinks(projectRoot: string): DirectiveLink[] {
@@ -85,7 +86,7 @@ export function loadLinks(projectRoot: string): DirectiveLink[] {
 }
 
 export function saveLinks(projectRoot: string, links: DirectiveLink[]): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = linksPath(projectRoot);
   const tmp = path + ".tmp";
@@ -119,7 +120,7 @@ interface LinkCandidateStore {
 const EMPTY_CANDIDATE_STORE: LinkCandidateStore = { version: 1, candidates: {} };
 
 function linkCandidatesPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "link-candidates.json");
+  return join(resolveSystemRoot(projectRoot), "link-candidates.json");
 }
 
 export function loadLinkCandidates(projectRoot: string): LinkCandidateStore {
@@ -140,7 +141,7 @@ export function saveLinkCandidates(
   projectRoot: string,
   store: LinkCandidateStore
 ): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = linkCandidatesPath(projectRoot);
   const tmp = path + ".tmp";
@@ -470,8 +471,9 @@ export function scanForLinkCandidates(
   projectRoot: string,
   directiveBodies: string[]
 ): LinkCandidateRecord[] {
-  const stampPath = join(projectRoot, ".squeeze", "last-scan.json");
-  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  const systemRoot = resolveSystemRoot(projectRoot);
+  const stampPath = join(systemRoot, "last-scan.json");
+  mkdirSync(systemRoot, { recursive: true });
   writeFileSync(`${stampPath}.tmp`, JSON.stringify({ ts: new Date().toISOString() }, null, 2));
   renameSync(`${stampPath}.tmp`, stampPath);
 

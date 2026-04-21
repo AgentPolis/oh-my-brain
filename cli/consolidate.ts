@@ -9,6 +9,7 @@ import {
 import { randomUUID } from "crypto";
 import { execFileSync } from "child_process";
 import { join } from "path";
+import { resolveMemoryPath, resolveSystemRoot } from "../src/scope.js";
 import { applyRememberDirective } from "./actions.js";
 import { applyRetireDirective } from "./actions.js";
 import { ingestCandidates, listCandidates, loadCandidateStore, saveCandidateStore } from "./candidates.js";
@@ -93,11 +94,11 @@ const REFLECTION_FILE = "reflection-proposals.json";
 const GROWTH_JOURNAL_FILE = "growth-journal.jsonl";
 
 function reflectionPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", REFLECTION_FILE);
+  return join(resolveSystemRoot(projectRoot), REFLECTION_FILE);
 }
 
 function growthJournalPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", GROWTH_JOURNAL_FILE);
+  return join(resolveSystemRoot(projectRoot), GROWTH_JOURNAL_FILE);
 }
 
 function normalizeProposal(proposal: ReflectionProposal): ReflectionProposal {
@@ -170,7 +171,7 @@ export function listReflectionProposals(
 }
 
 function saveReflectionProposals(projectRoot: string, proposals: ReflectionProposal[]): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = reflectionPath(projectRoot);
   const tmp = `${path}.tmp`;
@@ -350,7 +351,7 @@ export function dismissReflectionProposal(
 }
 
 function appendGrowthJournal(projectRoot: string, entry: GrowthJournalEntry): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   appendFileSync(growthJournalPath(projectRoot), `${JSON.stringify(entry)}\n`);
 }
@@ -593,7 +594,7 @@ function runSleepConsolidation(projectRoot: string): {
   newSchemas: number;
   highlights: string[];
 } {
-  const squeezePath = join(projectRoot, ".squeeze");
+  const squeezePath = resolveSystemRoot(projectRoot);
   const events = new EventStore(squeezePath).getAll();
   const existingHabits = loadHabits(projectRoot);
   const newHabits = detectHabits(events, existingHabits);
@@ -602,8 +603,9 @@ function runSleepConsolidation(projectRoot: string): {
     saveHabits(projectRoot, mergedHabits);
   }
 
-  const directives = existsSync(join(projectRoot, "MEMORY.md"))
-    ? parseActiveDirectives(join(projectRoot, "MEMORY.md"))
+  const memoryPath = resolveMemoryPath(projectRoot);
+  const directives = existsSync(memoryPath)
+    ? parseActiveDirectives(memoryPath)
     : [];
   const schemaStore = new SchemaStore(squeezePath);
   const existingSchemas = schemaStore.getAll();

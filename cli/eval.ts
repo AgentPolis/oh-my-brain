@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { join } from "path";
+import { resolveMemoryPath } from "../src/scope.js";
 import { parseActiveDirectives } from "./import-memory.js";
 import {
   OhMyBrainAdapter,
@@ -345,7 +346,7 @@ export async function runDecisionReplayCli(
 }
 
 export function loadDirectiveContextFromMemory(projectRoot: string): string {
-  const memoryPath = join(projectRoot, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(projectRoot);
   if (!existsSync(memoryPath)) return "";
   return parseActiveDirectives(memoryPath).map((directive) => `- ${directive}`).join("\n");
 }

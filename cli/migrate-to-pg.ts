@@ -5,11 +5,11 @@
  *   oh-my-brain migrate-to-pg [--project-root <path>]
  *
  * Reads:
- *   .squeeze/archive.jsonl → archive table
- *   .squeeze/events.jsonl  → events table
- *   .squeeze/relations.json → relations table
- *   .squeeze/habits.json   → habits table
- *   .squeeze/schemas.json  → schemas table
+ *   .brain/system/archive.jsonl → archive table
+ *   .brain/system/events.jsonl  → events table
+ *   .brain/system/relations.json → relations table
+ *   .brain/system/habits.json   → habits table
+ *   .brain/system/schemas.json  → schemas table
  *
  * Also creates graph nodes/edges from all imported data.
  * Idempotent — running twice does not duplicate data.
@@ -17,6 +17,7 @@
 
 import { existsSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
+import { resolveSystemRoot } from "../src/scope.js";
 import { randomUUID } from "crypto";
 import { pgliteFactory, type BrainDB } from "../src/storage/db.js";
 import { initPgSchema } from "../src/storage/pg-schema.js";
@@ -51,7 +52,7 @@ function readJson<T>(filePath: string): T | null {
 }
 
 export async function migrateToPg(projectRoot: string): Promise<MigrationResult> {
-  const squeezePath = join(projectRoot, ".squeeze");
+  const squeezePath = resolveSystemRoot(projectRoot);
   const pgDir = join(squeezePath, "brain.pg");
 
   const db = await pgliteFactory.create(pgDir);

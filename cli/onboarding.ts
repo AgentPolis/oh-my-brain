@@ -7,8 +7,10 @@
  * Called from `oh-my-brain init` (interactive) and compress hook (non-interactive hint).
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { basename, join } from "path";
+import { defaultScopeConfig, hasBrainDir, initBrainDir, saveScopeConfig } from "./brain-store.js";
+import { resolveMemoryPath, resolveMemoryScope } from "../src/scope.js";
 
 // ── Environment detection ──────────────────────────────────────────
 
@@ -57,7 +59,7 @@ export function detectEnvironment(cwd: string): EnvironmentInfo {
 
   const isWorkspace = !hasGit && subProjects.length >= 2;
 
-  const memoryPath = join(cwd, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(cwd);
   const hasExistingMemory = existsSync(memoryPath);
 
   return {
@@ -80,26 +82,28 @@ export interface OnboardingConfig {
   environment: "project" | "workspace" | "directory";
 }
 
-const CONFIG_FILE = ".squeeze/onboarding.json";
-
 export function getOnboardingConfig(cwd: string): OnboardingConfig | null {
-  const configPath = join(cwd, CONFIG_FILE);
-  if (!existsSync(configPath)) return null;
-  try {
-    return JSON.parse(readFileSync(configPath, "utf8")) as OnboardingConfig;
-  } catch {
-    return null;
-  }
+  const scope = resolveMemoryScope(cwd);
+  if (!existsSync(join(scope.brainRoot, "scope.json"))) return null;
+  return {
+    brainPath: scope.memoryPath,
+    onboardedAt: new Date().toISOString(),
+    environment: scope.scopeRoot === cwd ? "project" : "workspace",
+  };
 }
 
 export function saveOnboardingConfig(cwd: string, config: OnboardingConfig): void {
-  const squeezePath = join(cwd, ".squeeze");
-  mkdirSync(squeezePath, { recursive: true });
-  writeFileSync(join(cwd, CONFIG_FILE), JSON.stringify(config, null, 2) + "\n");
+  const scopeRoot = config.environment === "workspace" ? cwd : cwd;
+  initBrainDir(scopeRoot);
+  saveScopeConfig(scopeRoot, {
+    ...defaultScopeConfig(scopeRoot),
+    projectRoot: scopeRoot,
+  });
 }
 
 export function isOnboarded(cwd: string): boolean {
-  return getOnboardingConfig(cwd) !== null;
+  const scope = resolveMemoryScope(cwd);
+  return hasBrainDir(scope.scopeRoot);
 }
 
 // ── Interactive onboarding (for `oh-my-brain init`) ────────────────
@@ -148,7 +152,7 @@ export interface OnboardingChoice {
 
 export function getOnboardingOptions(env: EnvironmentInfo): Array<{ key: string; label: string; choice: OnboardingChoice }> {
   const options: Array<{ key: string; label: string; choice: OnboardingChoice }> = [];
-  const defaultPath = join(env.cwd, "MEMORY.md");
+  const defaultPath = resolveMemoryPath(env.cwd);
 
   if (env.isWorkspace) {
     if (env.hasExistingMemory) {
@@ -206,7 +210,7 @@ export function getCompressHookHint(cwd: string): string | null {
   }
 
   if (!env.hasExistingMemory) {
-    return `[brain] 🧠 記憶存在 ${join(cwd, "MEMORY.md")}。跑 oh-my-brain init 可以自訂設定。`;
+    return `[brain] 🧠 記憶存在 ${resolveMemoryPath(cwd)}。跑 oh-my-brain init 可以自訂設定。`;
   }
 
   return null;

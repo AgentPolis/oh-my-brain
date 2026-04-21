@@ -10,6 +10,7 @@ import {
 import { join, resolve } from "path";
 import { isDirectEntry } from "./is-main.js";
 import { buildKeywordProfile } from "../src/triage/domain-router.js";
+import { resolveMemoryPath, resolveSystemRoot } from "../src/scope.js";
 
 interface ProjectRunRecord {
   timestamp?: string;
@@ -54,7 +55,7 @@ function parseArgValue(args: string[], flag: string): string | undefined {
 }
 
 export function loadProjectRuns(projectRoot: string): ProjectRunRecord[] {
-  const logPath = join(projectRoot, ".squeeze", "runs.jsonl");
+  const logPath = join(resolveSystemRoot(projectRoot), "runs.jsonl");
   if (!existsSync(logPath)) return [];
 
   return readFileSync(logPath, "utf8")
@@ -128,7 +129,7 @@ export function renderMarkdown(projectRoot: string, runs: ProjectRunRecord[], me
   lines.push("## Latest Status");
   lines.push("");
   if (runs.length === 0) {
-    lines.push("- No `.squeeze/runs.jsonl` records found yet.");
+    lines.push("- No `.brain/system/runs.jsonl` records found yet.");
   } else {
     for (const [source, run] of latestBySource.entries()) {
       const tokenInfo = run.savedTokens ? `~${run.savedTokens} est. tokens saved` : "no estimated savings recorded";
@@ -215,7 +216,7 @@ export function renderMarkdown(projectRoot: string, runs: ProjectRunRecord[], me
     lines.push("- For each new memory line, ask: was this explicitly stated or confirmed by the user?");
     lines.push("- Check whether the line is durable across sessions, not just a one-off task update.");
     lines.push("- If a line came from `codex` or `claude`, compare the `sessionId` against the corresponding transcript before trusting it long-term.");
-    lines.push("- If a directive feels too broad, delete it from `MEMORY.md` and keep the evidence in `.squeeze/runs.jsonl` for audit only.");
+    lines.push("- If a directive feels too broad, delete it from `MEMORY.md` and keep the evidence in `.brain/system/runs.jsonl` for audit only.");
   }
   lines.push("");
 
@@ -273,11 +274,12 @@ export function reportDomainStats(projectRoot: string): string {
 
 export function writeLatestAudit(projectRoot: string): string {
   const runs = loadProjectRuns(projectRoot);
-  const memoryEntries = parseMemoryEntries(join(projectRoot, "MEMORY.md"));
+  const memoryEntries = parseMemoryEntries(resolveMemoryPath(projectRoot));
   const markdown = renderMarkdown(projectRoot, runs, memoryEntries);
   const domainStats = reportDomainStats(projectRoot);
-  const outputPath = join(projectRoot, ".squeeze", "LATEST.md");
-  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  const systemRoot = resolveSystemRoot(projectRoot);
+  const outputPath = join(systemRoot, "LATEST.md");
+  mkdirSync(systemRoot, { recursive: true });
   writeFileSync(outputPath, `${markdown}${domainStats}\n`);
   return outputPath;
 }

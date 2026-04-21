@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { resolveMemoryPath } from "../src/scope.js";
 import { classify } from "../src/triage/classifier.js";
 import { Level } from "../src/types.js";
 import { applyRememberDirective } from "./actions.js";
@@ -95,7 +96,7 @@ export function scanImportFile(projectRoot: string, filePath: string): ImportSca
     return { directives: [], candidates: [], skipped: 0 };
   }
 
-  const memoryPath = join(projectRoot, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(projectRoot);
   const existingDirectives = existsSync(memoryPath)
     ? parseExistingDirectives(readFileSync(memoryPath, "utf8"))
     : new Set<string>();

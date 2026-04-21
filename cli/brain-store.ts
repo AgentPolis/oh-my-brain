@@ -16,7 +16,7 @@
  *   │   └── ...
  *   ├── episodes/
  *   │   └── brain.pg/      — PGLite knowledge graph
- *   └── .squeeze/          — audit trail, candidates, archive
+ *   └── system/            — audit trail, candidates, archive
  */
 
 import {
@@ -32,6 +32,7 @@ import {
   lstatSync,
 } from "node:fs";
 import { join, basename, dirname, resolve } from "node:path";
+import { resolveMemoryPath, resolveMemoryScope } from "../src/scope.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -46,8 +47,8 @@ export interface BrainPaths {
   domainsDir: string;     // .brain/domains/
   projectsDir: string;    // .brain/projects/
   episodesDir: string;    // .brain/episodes/
-  squeezeDir: string;     // .brain/.squeeze/
-  lastSession: string;    // .brain/.squeeze/last-session.json
+  systemDir: string;      // .brain/system/
+  lastSession: string;    // .brain/system/last-session.json
 }
 
 export interface ProjectInfo {
@@ -82,7 +83,8 @@ export interface BrainScopeConfig {
 // ── Path Resolution ───────────────────────────────────────────────
 
 export function resolveBrainPaths(projectRoot: string): BrainPaths {
-  const root = join(projectRoot, ".brain");
+  const scope = resolveMemoryScope(projectRoot);
+  const root = scope.brainRoot;
   return {
     root,
     scope: join(root, "scope.json"),
@@ -92,13 +94,13 @@ export function resolveBrainPaths(projectRoot: string): BrainPaths {
     domainsDir: join(root, "domains"),
     projectsDir: join(root, "projects"),
     episodesDir: join(root, "episodes"),
-    squeezeDir: join(root, ".squeeze"),
-    lastSession: join(root, ".squeeze", "last-session.json"),
+    systemDir: join(root, "system"),
+    lastSession: join(root, "system", "last-session.json"),
   };
 }
 
 export function hasBrainDir(projectRoot: string): boolean {
-  return existsSync(join(projectRoot, ".brain"));
+  return existsSync(resolveMemoryScope(projectRoot).brainRoot);
 }
 
 // ── Initialization ────────────────────────────────────────────────
@@ -109,7 +111,7 @@ export function initBrainDir(projectRoot: string): BrainPaths {
   mkdirSync(paths.domainsDir, { recursive: true });
   mkdirSync(paths.projectsDir, { recursive: true });
   mkdirSync(paths.episodesDir, { recursive: true });
-  mkdirSync(paths.squeezeDir, { recursive: true });
+  mkdirSync(paths.systemDir, { recursive: true });
 
   // Create defaults if not exist
   if (!existsSync(paths.identity)) {
@@ -129,8 +131,8 @@ export function initBrainDir(projectRoot: string): BrainPaths {
     );
   }
 
-  // Ensure .brain/ and .squeeze/ are in .gitignore (personal data protection)
-  ensureGitignore(projectRoot, [".brain/", ".squeeze/"]);
+  // Ensure .brain/ is ignored (personal data protection).
+  ensureGitignore(projectRoot, [".brain/"]);
 
   return paths;
 }
@@ -576,9 +578,11 @@ export function refreshMemoryMd(projectRoot: string, cwd?: string): void {
   const content = assembleBrainToMemory(projectRoot, cwd);
   if (!content) return;
   const outputPath = join(projectRoot, "MEMORY.md");
-  const tmp = outputPath + ".tmp";
+  const resolved = resolveMemoryPath(projectRoot);
+  const targetPath = resolved || outputPath;
+  const tmp = targetPath + ".tmp";
   writeFileSync(tmp, content, "utf8");
-  renameSync(tmp, outputPath);
+  renameSync(tmp, targetPath);
 }
 
 // ── Noise Filter (shared by migrate and brainRemember) ────────────
@@ -892,10 +896,10 @@ export function migrateToBrain(projectRoot: string): {
     stats.migrated++;
   }
 
-  // Migrate .squeeze/ → .brain/.squeeze/
+  // Migrate legacy .squeeze/ → .brain/system/
   const oldSqueeze = join(projectRoot, ".squeeze");
   if (existsSync(oldSqueeze)) {
-    const squeezeDest = paths.squeezeDir;
+    const squeezeDest = paths.systemDir;
     // Copy files (not dirs like brain.pg which goes to episodes)
     for (const entry of readdirSync(oldSqueeze)) {
       const src = join(oldSqueeze, entry);
@@ -919,7 +923,7 @@ export function migrateToBrain(projectRoot: string): {
     }
   }
 
-  // Delete old .squeeze/ after migration (data is now in .brain/.squeeze/)
+  // Delete old .squeeze/ after migration (data is now in .brain/system/)
   const oldSqueezePath = join(projectRoot, ".squeeze");
   if (existsSync(oldSqueezePath)) {
     try {
@@ -1010,7 +1014,7 @@ export function auditBrain(projectRoot: string): BrainAudit {
   }
 
   // Estimate MEMORY.md tokens (rough: ~4 chars per token)
-  const memoryMd = join(projectRoot, "MEMORY.md");
+  const memoryMd = resolveMemoryPath(projectRoot);
   const memoryContent = existsSync(memoryMd) ? readFileSync(memoryMd, "utf8") : "";
   const memoryMdTokenEstimate = Math.ceil(memoryContent.length / 4);
 
@@ -1096,7 +1100,7 @@ export interface Episode {
 }
 
 function episodesPath(paths: BrainPaths): string {
-  return join(paths.squeezeDir, "episodes.jsonl");
+  return join(paths.systemDir, "episodes.jsonl");
 }
 
 export function loadEpisodes(paths: BrainPaths): Episode[] {

@@ -4,6 +4,7 @@
 
 import { mkdirSync } from "fs";
 import { join } from "path";
+import { resolveSystemRoot } from "../scope.js";
 import type { DirectiveRecord, PreferenceRecord } from "../types.js";
 import type { BrainDB } from "./db.js";
 import { pgliteFactory } from "./db.js";
@@ -187,7 +188,7 @@ function toDirectiveRecord(row: RawDirectiveRow): DirectiveRecord {
 }
 
 function projectPgPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "brain.pg");
+  return join(resolveSystemRoot(projectRoot), "brain.pg");
 }
 
 function extractDirectiveKey(content: string): string {
@@ -219,7 +220,7 @@ export async function persistDirectives(
 ): Promise<void> {
   if (records.length === 0) return;
 
-  mkdirSync(join(projectRoot, ".squeeze"), { recursive: true });
+  mkdirSync(resolveSystemRoot(projectRoot), { recursive: true });
   const db = await pgliteFactory.create(projectPgPath(projectRoot));
   try {
     await initPgSchema(db);

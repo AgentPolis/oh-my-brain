@@ -36,6 +36,7 @@ import { DagStore } from "./storage/dag.js";
 import { OutcomeStore } from "./storage/outcomes.js";
 import { ProcedureStore } from "./storage/procedures.js";
 import { dirname, join } from "path";
+import { resolveSystemRoot } from "./scope.js";
 
 export class SqueezeContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
@@ -70,7 +71,7 @@ export class SqueezeContextEngine implements ContextEngine {
   // ── Lifecycle hooks ────────────────────────────────────────────
 
   async bootstrap(dbPath: string): Promise<void> {
-    this.squeezePath = join(dirname(dbPath), ".squeeze");
+    this.squeezePath = resolveSystemRoot(dirname(dbPath));
     this.brainDb = await pgliteFactory.create(dbPath);
 
     if (!(await checkPgIntegrity(this.brainDb))) {
@@ -113,7 +114,7 @@ export class SqueezeContextEngine implements ContextEngine {
     this.turnIndex = await this.messages.getMaxTurn();
 
     // JSONL-based stores (outcome loop + procedures)
-    if (!this.squeezePath) this.squeezePath = join(process.cwd(), ".squeeze");
+    if (!this.squeezePath) this.squeezePath = resolveSystemRoot(process.cwd());
     this.outcomeStore = new OutcomeStore(this.squeezePath);
     this.procedureStore = new ProcedureStore(this.squeezePath);
   }

@@ -3,6 +3,7 @@ import { join } from "path";
 import { loadActionLog } from "./actions.js";
 import { listCandidates, loadCandidateStore, pendingCount } from "./candidates.js";
 import { loadLinks } from "./links-store.js";
+import { resolveMemoryPath, resolveSystemRoot } from "../src/scope.js";
 import { parseActiveDirectives } from "./import-memory.js";
 import { ArchiveStore } from "../src/storage/archive.js";
 
@@ -152,15 +153,15 @@ export function buildDiffReport(
     candidate.text.startsWith("MERGE:")
   ).length;
   const conflicts = loadLinks(projectRoot).filter((link) => link.kind === "contradicts").length;
-  const memoryPath = join(projectRoot, "MEMORY.md");
+  const memoryPath = resolveMemoryPath(projectRoot);
   const totalDirectives = existsSync(memoryPath) ? parseActiveDirectives(memoryPath).length : 0;
   const ratePerDay = Number(((addedRemember + addedPromoted) / daysBetween(period.from, period.to)).toFixed(1));
   const trend = computeTrend(ratePerDay, daysBetween(period.from, period.to));
 
-  const archivePath = join(projectRoot, ".squeeze", "archive.jsonl");
+  const archivePath = join(resolveSystemRoot(projectRoot), "archive.jsonl");
   let archive: DiffReport["archive"];
   if (existsSync(archivePath)) {
-    const archiveStore = new ArchiveStore(join(projectRoot, ".squeeze"));
+    const archiveStore = new ArchiveStore(resolveSystemRoot(projectRoot));
     archive = {
       new_entries: archiveStore.searchByTime(period.from, period.to).length,
       total_entries: archiveStore.getSummary().count,

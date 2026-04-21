@@ -21,9 +21,9 @@
  *
  * Design notes:
  *
- * - Append-only log at `.squeeze/actions.jsonl`. One Action per line.
- *   The .squeeze/ directory name is preserved from v0.2 to avoid
- *   orphaning existing user data; the path is implementation detail.
+ * - Append-only log at `.brain/system/actions.jsonl`. One Action per line.
+ *   Legacy `.squeeze/` data is migrated forward, but new writes live
+ *   under the canonical `.brain/` tree.
  *
  * - Each Action carries enough `prevState` to be reversed. For a
  *   `RememberDirective`, that's the state of MEMORY.md before the
@@ -53,6 +53,7 @@ import {
 } from "fs";
 import { randomBytes } from "crypto";
 import { join } from "path";
+import { resolveMemoryPath, resolveSystemRoot } from "../src/scope.js";
 import {
   appendDirectivesToMemory,
   retireDirective,
@@ -215,11 +216,11 @@ export type Action =
 // ── Storage ──────────────────────────────────────────────────────
 
 function actionsLogPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "actions.jsonl");
+  return join(resolveSystemRoot(projectRoot), "actions.jsonl");
 }
 
 function memoryPath(projectRoot: string): string {
-  return join(projectRoot, "MEMORY.md");
+  return resolveMemoryPath(projectRoot);
 }
 
 function generateActionId(): string {
@@ -260,7 +261,7 @@ function runOntologyScan(projectRoot: string): void {
 }
 
 function appendActionToLog(projectRoot: string, action: Action): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   appendFileSync(actionsLogPath(projectRoot), JSON.stringify(action) + "\n");
 }

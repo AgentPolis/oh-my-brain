@@ -11,7 +11,7 @@
  * using MEMORY_CANDIDATE_PATTERNS. This module persists them across runs,
  * gives them stable IDs, and exposes review operations.
  *
- * Storage: `.squeeze/candidates.json` at the project root. Single JSON file
+ * Storage: `.brain/system/candidates.json` at the project root. Single JSON file
  * for simplicity. Each record is keyed by a content hash so the same soft
  * signal from repeated sessions is de-duplicated automatically.
  */
@@ -20,6 +20,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { createHash } from "crypto";
 import { join } from "path";
 import { logBlocked, scanForInjection } from "./compress-core.js";
+import { resolveSystemRoot } from "../src/scope.js";
 
 export type CandidateStatus = "pending" | "approved" | "rejected";
 
@@ -44,7 +45,7 @@ export interface CandidateStore {
 const EMPTY_STORE: CandidateStore = { version: 1, candidates: {} };
 
 function candidatesPath(projectRoot: string): string {
-  return join(projectRoot, ".squeeze", "candidates.json");
+  return join(resolveSystemRoot(projectRoot), "candidates.json");
 }
 
 /**
@@ -75,7 +76,7 @@ export function loadCandidateStore(projectRoot: string): CandidateStore {
 }
 
 export function saveCandidateStore(projectRoot: string, store: CandidateStore): void {
-  const dir = join(projectRoot, ".squeeze");
+  const dir = resolveSystemRoot(projectRoot);
   mkdirSync(dir, { recursive: true });
   const path = candidatesPath(projectRoot);
   const tmp = `${path}.tmp`;
@@ -111,7 +112,7 @@ export function ingestCandidates(
       const scan = scanForInjection(text);
       if (!scan.safe) {
         if (metadata.projectRoot) {
-          logBlocked(join(metadata.projectRoot, ".squeeze"), {
+          logBlocked(resolveSystemRoot(metadata.projectRoot), {
             ts: new Date().toISOString(),
             text,
             reason: scan.reason ?? "blocked",
