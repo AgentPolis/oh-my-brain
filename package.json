@@ -30,10 +30,11 @@
     "build": "tsup src/index.ts --format esm --dts && tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/consolidate.ts cli/growth.ts cli/reflect.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/types-store.ts cli/links-store.ts cli/is-main.ts cli/import.ts cli/init-scan.ts cli/eval.ts cli/import-memory.ts cli/remember.ts cli/brain-store.ts --format esm --no-dts --out-dir dist/cli",
     "build:cli": "tsup cli/brain.ts cli/compress.ts cli/compress-core.ts cli/codex-sync.ts cli/codex-session.ts cli/audit.ts cli/consolidate.ts cli/growth.ts cli/reflect.ts cli/candidates.ts cli/candidates-cli.ts cli/lockfile.ts cli/mcp-server.ts cli/actions.ts cli/types-store.ts cli/links-store.ts cli/is-main.ts cli/import.ts cli/init-scan.ts cli/eval.ts cli/import-memory.ts cli/remember.ts cli/brain-store.ts --format esm --no-dts --out-dir dist/cli",
     "dev": "tsup src/index.ts --format esm --dts --watch",
+    "repo:check": "node scripts/check-repo-allowlist.mjs",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "tsc --noEmit",
-    "verify": "npm run lint && npm run test:run && npm run build && npm pack --dry-run"
+    "verify": "npm run repo:check && npm run lint && npm run test:run && npm run build && npm pack --dry-run"
   },
   "keywords": [
     "second-brain",
