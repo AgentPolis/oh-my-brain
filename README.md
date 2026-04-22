@@ -33,9 +33,9 @@ with your project.
 
 ## What happens when you use it
 
-**Session 1:** You tell Claude "always use Chinese for reviews" and
-"never attack competitors in docs." oh-my-brain saves these to your
-brain.
+**Session 1:** You tell Claude "default to actionable review feedback,
+not theory" and "write product docs with honest claims and clear
+tradeoffs." oh-my-brain saves these to your brain.
 
 **Session 2:** You're working on the same project in Codex. The agent
 already knows your preferences, reads yesterday's handoff, and keeps

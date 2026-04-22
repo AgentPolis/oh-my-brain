@@ -45,7 +45,7 @@ describe("isOneOffTask", () => {
   it("does NOT flag durable rules", () => {
     expect(isOneOffTask("always use Apache-2.0 + CLA")).toBe(false);
     expect(isOneOffTask("commit messages: professional, neutral")).toBe(false);
-    expect(isOneOffTask("never attack competitors in docs")).toBe(false);
+    expect(isOneOffTask("write product docs with honest claims and clear tradeoffs")).toBe(false);
   });
 
   it("detects 'replace X with Y' as one-off", () => {
