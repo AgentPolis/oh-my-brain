@@ -1,0 +1,65 @@
+{
+  "benchmark": "LongMemEval oracle",
+  "run_type": "full 500-question oracle run",
+  "score": {
+    "correct": 447,
+    "total": 500,
+    "accuracy": 0.894
+  },
+  "per_type": {
+    "single-session-assistant": {
+      "correct": 56,
+      "total": 56
+    },
+    "single-session-user": {
+      "correct": 69,
+      "total": 70
+    },
+    "single-session-preference": {
+      "correct": 22,
+      "total": 30
+    },
+    "knowledge-update": {
+      "correct": 70,
+      "total": 78
+    },
+    "temporal-reasoning": {
+      "correct": 119,
+      "total": 133
+    },
+    "multi-session": {
+      "correct": 111,
+      "total": 133
+    }
+  },
+  "generator": {
+    "tool": "codex",
+    "system": "oh-my-brain memory assembly + codex reader"
+  },
+  "evaluator": {
+    "script": "LongMemEval evaluate_qa.py",
+    "judge_model": "gpt-4o-2024-08-06"
+  },
+  "dataset": {
+    "name": "longmemeval_oracle.json",
+    "variant": "cleaned"
+  },
+  "run_timestamps": {
+    "started_at": "2026-04-20T01:04:29.096Z",
+    "generated_at": "2026-04-20T02:00:39.141Z"
+  },
+  "project_commit": null,
+  "project_commit_note": "The exact project commit for this run was not recorded in the original artifact.",
+  "files": {
+    "hypotheses": {
+      "path": "longmemeval-oracle-500-latest.jsonl",
+      "lines": 500,
+      "sha256": "78471059e067eb162fe53c94fdec69be530df0b73457591f160beef498f0db3d"
+    },
+    "eval_results": {
+      "path": "longmemeval-oracle-500-latest.jsonl.eval-results-gpt-4o",
+      "lines": 500,
+      "sha256": "e843c465f70f6d63dd75a3b5487257b023ef889eeb729da2198acc6d718714b5"
+    }
+  }
+}

@@ -8,6 +8,7 @@ CLAUDE.md
 CONTRIBUTING.md
 LICENSE
 README.md
+benchmarks/**
 package-lock.json
 package.json
 tsconfig.json

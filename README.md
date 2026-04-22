@@ -170,10 +170,10 @@ Other checks:
 
 - Directive retention (100+ turns): **100%**
 - Cross-agent handoff: **6/6 pass**
-- Context startup cost: **~49 tokens**
+- Context startup cost in replay eval: **~49 tokens**
 
 See [benchmark methodology](docs/real-session-replay-eval.md) and
-[LongMemEval details](docs/longmemeval-500-oracle.md).
+[LongMemEval artifacts](benchmarks/longmemeval/README.md).
 
 ## FAQ
 
